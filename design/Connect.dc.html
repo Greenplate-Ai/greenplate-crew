@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Connect glasses</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #FBFAF9; font-family: Inter, system-ui, sans-serif; color: #202428; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="height: 330px; background: #0E2B1F; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-top: 30px">
+<svg width="200" height="86" viewBox="0 0 200 86" fill="none" aria-hidden="true">
+<path d="M8 30c30-10 154-10 184 0" stroke="#6F8B7D" stroke-width="3" stroke-linecap="round"></path>
+<rect x="18" y="24" width="70" height="46" rx="22" stroke="#FFFFFF" stroke-width="5"></rect>
+<rect x="112" y="24" width="70" height="46" rx="22" stroke="#FFFFFF" stroke-width="5"></rect>
+<path d="M88 38c8-6 16-6 24 0" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"></path>
+<circle cx="100" cy="16" r="5" fill="#4ECB37"></circle>
+</svg>
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="width: 8px; height: 8px; border-radius: 999px; background: #4ECB37"></span>
+<span style="font-size: 13px; color: #B9D6C6">Glasses found nearby</span>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; flex-direction: column; gap: 22px; padding: 28px 24px 34px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h1 style="margin: 0; font-family: Newsreader, Georgia, serif; font-weight: 500; font-size: 34px; line-height: 1.1; letter-spacing: -0.02em">Put your crew on your glasses</h1>
+<p style="margin: 0; font-size: 15px; color: #585E6A; line-height: 1.5">Works with Ray-Ban Meta and Oakley Meta glasses through the Meta AI app.</p>
+</div>
+
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px">
+<li style="display: flex; gap: 12px; align-items: flex-start">
+<span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 999px; background: #25A777; color: #FFFFFF; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-label="Done" role="img"><path d="M5 12l5 5 9-10"></path></svg></span>
+<span style="font-size: 15px; line-height: 1.45; color: #585E6A">Turn on Developer Mode in the Meta AI app</span>
+</li>
+<li style="display: flex; gap: 12px; align-items: flex-start">
+<span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 999px; background: #D9F2E7; color: #186F50; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">2</span>
+<span style="font-size: 15px; line-height: 1.45; font-weight: 500">Register Kitchen Crew with Meta AI</span>
+</li>
+<li style="display: flex; gap: 12px; align-items: flex-start">
+<span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 999px; background: #EDEAE5; color: #585E6A; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">3</span>
+<span style="font-size: 15px; line-height: 1.45; color: #585E6A">Allow the glasses' camera and microphone</span>
+</li>
+</ol>
+
+<div style="flex: 1"></div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<button type="button" style="font-family: inherit; font-size: 16px; font-weight: 600; color: #FFFFFF; background: #25A777; border: 0; border-radius: 999px; min-height: 52px; box-shadow: 0 4px 10px -4px rgba(37,167,119,.5)">Register with Meta AI</button>
+<a href="Ask.dc.html" style="font-size: 15px; font-weight: 500; color: #186F50; text-align: center; padding: 12px; text-decoration: none">Try it on the phone first</a>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
