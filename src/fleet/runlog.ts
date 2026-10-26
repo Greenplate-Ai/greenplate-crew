@@ -17,7 +17,7 @@ export class RunLog {
   constructor(readonly runId: string, readonly request: string) {}
   add(s: Omit<Step, 'at'>): void { this.steps.push({ at: new Date().toISOString(), ...s }) }
   get usd(): number { return this.steps.reduce((a, s) => a + (s.usd ?? 0), 0) }
-  get kitchenCalls(): number { return this.steps.filter((s) => s.kind === 'tool' && s.outcome !== 'preview' && s.outcome !== 'declined').length }
+  get serviceCalls(): number { return this.steps.filter((s) => s.kind === 'tool' && s.outcome !== 'preview' && s.outcome !== 'declined').length }
   /** One line per step, for the phone and the demo's run-log shot. */
   lines(): string[] {
     return this.steps.map((s) => [s.agent.padEnd(8), s.kind.padEnd(7), s.tool ?? '', s.outcome ?? '', s.note ?? ''].join(' ').trimEnd())

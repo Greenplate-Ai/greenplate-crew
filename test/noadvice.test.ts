@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { askCrew } from '../src/crew.js'
-import { fakeKitchen } from '../src/kitchen.js'
-import { say, scripted } from '../src/model.js'
-import { soundsLikeCoaching } from '../src/noadvice.js'
+import { askCrew } from '../src/kitchen/crew.js'
+import { fakeKitchen } from '../src/kitchen/service.js'
+import { say, scripted } from '../src/fleet/model.js'
+import { soundsLikeCoaching } from '../src/kitchen/noadvice.js'
 
 describe('no-advice guard', () => {
   it('flags coaching and health talk', () => {
@@ -15,13 +15,13 @@ describe('no-advice guard', () => {
       expect(soundsLikeCoaching(s), s).toBeNull()
   })
 
-  const base = { kitchen: fakeKitchen({}), canWrite: true, budget: { maxTurns: 4, maxKitchenCalls: 10, maxUsd: 1 }, confirm: async () => true, today: '2026-10-26' }
+  const base = { kitchen: fakeKitchen({}), canWrite: true, budget: { maxTurns: 4, maxServiceCalls: 10, maxUsd: 1 }, confirm: async () => true, today: '2026-10-26' }
 
   it('rewrites a coaching answer as kitchen facts', async () => {
     const model = scripted([say('You should eat less rice tonight.'), say('Tonight is chicken and rice.')])
     const r = await askCrew("what's for dinner?", 'general', { ...base, model })
     expect(r.answer).toBe('Tonight is chicken and rice.')
-    expect(r.log.steps.some((s) => s.note?.startsWith('no-advice guard'))).toBe(true)
+    expect(r.log.steps.some((s) => s.note?.startsWith('answer guard'))).toBe(true)
   })
 
   it('falls back to a neutral answer if the rewrite still coaches', async () => {

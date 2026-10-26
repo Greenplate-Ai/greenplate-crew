@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fakeKitchen } from '../src/kitchen.js'
-import { buildShoppingList, covers } from '../src/shopping.js'
+import { fakeKitchen } from '../src/kitchen/service.js'
+import { buildShoppingList, covers } from '../src/kitchen/shopping.js'
 
 describe('covers', () => {
   it('matches plurals and descriptive words', () => {

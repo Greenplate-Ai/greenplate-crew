@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { askCrew, type CrewOptions } from '../src/crew.js'
-import { fakeKitchen } from '../src/kitchen.js'
-import { call, say, scripted } from '../src/model.js'
+import { askCrew, type CrewOptions } from '../src/kitchen/crew.js'
+import { fakeKitchen } from '../src/kitchen/service.js'
+import { call, say, scripted } from '../src/fleet/model.js'
 
 const kitchen = () => fakeKitchen({
   pantry: [{ name: 'eggs' }],
@@ -13,7 +13,7 @@ const opts = (over: Partial<CrewOptions>): CrewOptions => ({
   model: scripted([say('ok')]),
   kitchen: kitchen(),
   canWrite: true,
-  budget: { maxTurns: 6, maxKitchenCalls: 40, maxUsd: 1 },
+  budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 1 },
   confirm: async () => true,
   today: '2026-10-26',
   ...over,
@@ -88,8 +88,8 @@ describe('the crew', () => {
 
   it('never goes past the kitchen call budget', async () => {
     const model = scripted([call('ask_pantry', { task: 'check' }), call('kitchen_pantry_list')])
-    const r = await askCrew('check', 'general', opts({ model, budget: { maxTurns: 20, maxKitchenCalls: 3, maxUsd: 1 } }))
-    expect(r.stoppedBecause).toBe('kitchen_calls')
-    expect(r.log.kitchenCalls).toBeLessThanOrEqual(3)
+    const r = await askCrew('check', 'general', opts({ model, budget: { maxTurns: 20, maxServiceCalls: 3, maxUsd: 1 } }))
+    expect(r.stoppedBecause).toBe('service_calls')
+    expect(r.log.serviceCalls).toBeLessThanOrEqual(3)
   })
 })

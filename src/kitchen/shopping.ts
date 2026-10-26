@@ -1,6 +1,6 @@
 // What to buy: the ingredients of the planned recipes, minus what the pantry already holds.
 // GreenplateAi has no shopping-list tool; this is new crew work, computed here and shown to the person.
-import type { Kitchen } from './kitchen.js'
+import type { Kitchen } from './service.js'
 
 export interface Need { name: string; qty?: number; unit?: string; forMeals: string[] }
 export interface ShoppingList { from: string; to: string; needs: Need[]; alreadyHave: string[]; unknownRecipes: string[]; toolCalls: number }
