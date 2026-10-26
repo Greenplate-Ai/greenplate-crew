@@ -4,6 +4,7 @@
 import { isLimit, type Kitchen } from './kitchen.js'
 import type { Model, Msg, ToolCall, ToolDef } from './model.js'
 import { RunLog } from './runlog.js'
+import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
 
 export type Mode = 'shopping' | 'capture' | 'cooking' | 'eating_out' | 'pantry_check' | 'general'
@@ -100,8 +101,17 @@ export async function askCrew(request: string, mode: Mode, opts: CrewOptions, ru
   const ctx: Ctx = { opts, log, calls: { n: 0 } }
   const context = `Today is ${opts.today}. ${MODE_LEAD[mode]}`.trim()
   const r = await runAgent('lead', `${context}\n\nThe person said: "${request}"`, ctx)
+  let answer = r.answer
+  const hit = soundsLikeCoaching(answer)
+  if (hit) {
+    // One rewrite, then a neutral fallback: the crew never coaches, even when a model slips.
+    log.add({ agent: 'lead', kind: 'think', outcome: 'refused', note: `no-advice guard: "${hit}"` })
+    const t = await opts.model.turn([{ role: 'system', content: `${AGENTS.lead.job} ${RULES}` }, { role: 'user', content: `${REWRITE}\n\nAnswer to rewrite: "${answer}"` }], [])
+    log.add({ agent: 'lead', kind: 'think', inputTokens: t.inputTokens, outputTokens: t.outputTokens, usd: (t.inputTokens * opts.model.price.input + t.outputTokens * opts.model.price.output) / 1e6 })
+    answer = soundsLikeCoaching(t.text) ? 'Done. Check the app for the details.' : t.text
+  }
   log.add({ agent: 'lead', kind: 'stop', note: r.stoppedBecause })
-  return { answer: r.answer, stoppedBecause: r.stoppedBecause, log }
+  return { answer, stoppedBecause: r.stoppedBecause, log }
 }
 
 async function runAgent(name: AgentName, task: string, ctx: Ctx): Promise<Omit<CrewResult, 'log'>> {
