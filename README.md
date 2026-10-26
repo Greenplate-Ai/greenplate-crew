@@ -27,6 +27,16 @@ The engine is tested on a fleet that has nothing to do with food (`test/fleet.te
 Any change made to GreenplateAi itself during the event (for example, a new plug-in tool) is listed
 here when it lands. The demo video opens with the same split.
 
+## Prior work, stated plainly
+
+The author has built agent fleets before. The experience carried over; no code did.
+
+| Prior work | What it is | Relation to this repo |
+|---|---|---|
+| [zacha0dev/fleet-kit](https://github.com/zacha0dev/fleet-kit) (public, Sep 2026) | Markdown agent definitions and skills for coding assistants (Claude Code, GitHub Copilot) | Same idea of a lead plus specialists. No code, prompts or files reused. |
+| i2 Systems' agent fleet (private) | A business-operations fleet on a different stack and models | Same idea. No code reused. |
+| A private design spike (Oct 26, before kickoff) | Architecture notes and a small runtime sketch, written the morning of kickoff | Not included. This repo was written from an empty folder after the kickoff session; see the commit history. |
+
 ## Meta models used
 
 - **Muse Spark 1.3** (Meta Model API): every agent's reasoning, tool calls and parallel hand-offs.
