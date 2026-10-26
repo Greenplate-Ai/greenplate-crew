@@ -1,6 +1,6 @@
 // The crew service the glasses app talks to. Plain Node http, no framework.
 //   POST /ask            {request, mode}            -> {runId}
-//   GET  /runs/:id                                  -> {status, answer?, question?, steps}
+//   GET  /runs/:id                                  -> {status, answer?, question?, spoken?, steps}
 //   POST /runs/:id/answer {yes}                     -> {ok}
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
 //   POST /shopping/:id/frame {jpegBase64}           -> {say?}
@@ -13,6 +13,7 @@ import type { RunLog } from '../fleet/runlog.js'
 import { askCrew, type Mode } from './crew.js'
 import type { Kitchen } from './service.js'
 import { buildShoppingList } from './shopping.js'
+import { spokenQuestion } from './speak.js'
 import { noticeItem, remaining, type Seen, type ShoppingTrip } from './vision.js'
 
 interface RunState {
@@ -67,7 +68,7 @@ export function crewServer(d: ServerDeps) {
       const run = runs.get(parts[1])
       if (!run) return send(res, 404, { error: 'no such run' })
       if (req.method === 'GET' && parts.length === 2) {
-        return send(res, 200, { status: run.status, answer: run.answer, question: run.question, stoppedBecause: run.stoppedBecause, steps: run.log?.lines() ?? [], usd: run.log?.usd ?? 0 })
+        return send(res, 200, { status: run.status, answer: run.answer, question: run.question, spoken: run.question ? spokenQuestion(run.question) : undefined, stoppedBecause: run.stoppedBecause, steps: run.log?.lines() ?? [], usd: run.log?.usd ?? 0 })
       }
       if (req.method === 'POST' && parts[2] === 'answer') {
         const body = await json(req)

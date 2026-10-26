@@ -1,0 +1,43 @@
+# Builds the glasses companion app and sends it to TestFlight (internal testers only).
+# The Meta toolkit uses ExternalAccessory, so this app is not for App Store review.
+workflows:
+  crew-ios-testflight:
+    name: Kitchen Crew iOS (TestFlight internal)
+    instance_type: mac_mini_m2
+    max_build_duration: 40
+    integrations:
+      app_store_connect: greenplateai_asc
+    environment:
+      xcode: "26.6"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: ai.greenplate.crew
+      vars:
+        XCODEGEN_VERSION: "2.42.0"
+    # Started by hand in Codemagic, to save build minutes.
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          curl -sL "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip" -o xcodegen.zip
+          unzip -q xcodegen.zip -d "$HOME/xcodegen"
+          echo "PATH=$HOME/xcodegen/xcodegen/bin:$PATH" >> $CM_ENV
+      - name: Generate the Xcode project
+        working_directory: ios
+        script: xcodegen generate
+      - name: Use signing profiles
+        script: xcode-project use-profiles
+      - name: Build number
+        working_directory: ios
+        script: agvtool new-version -all "$BUILD_NUMBER"
+      - name: Build the IPA
+        working_directory: ios
+        script: |
+          xcode-project build-ipa --project GreenplateCrew.xcodeproj --scheme GreenplateCrew
+    artifacts:
+      - ios/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

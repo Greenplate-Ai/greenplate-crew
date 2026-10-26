@@ -21,7 +21,8 @@ The engine is tested on a fleet that has nothing to do with food (`test/fleet.te
 |---|---|
 | GreenplateAi: the web app at app.greenplate.ai, its API, database and recipe catalog | The fleet engine (`src/fleet/`) |
 | GreenplateAi's MCP plug-in with pantry, plan, food-log and recipe tools | The kitchen crew, its modes, and its shopping list (planned recipes minus pantry), `src/kitchen/` |
-| | The glasses companion app for iPhone (Meta Wearables Device Access Toolkit) |
+| | The glasses companion app for iPhone (Meta Wearables Device Access Toolkit), `ios/` |
+| | The crew service the app calls, including live shopping, `src/kitchen/server.ts` |
 | | The live fleet view used in the demo |
 
 Any change made to GreenplateAi itself during the event (for example, a new plug-in tool) is listed
