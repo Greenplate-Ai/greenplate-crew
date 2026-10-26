@@ -118,10 +118,24 @@ async function runAgent(name: AgentName, task: string, ctx: Ctx): Promise<Omit<C
     if (turn.toolCalls.length === 0) return { answer: turn.text, stoppedBecause: 'done' }
     if (ctx.log.usd > budget.maxUsd) return { answer: turn.text || 'I stopped to stay inside the budget.', stoppedBecause: 'cost' }
 
-    for (const c of turn.toolCalls) {
-      const out = await runTool(name, byName.get(c.name), c, ctx)
+    // Hand-offs the lead issues together run in parallel (the fleet fans out); every other tool runs
+    // in order, so writes never race each other.
+    const fanOut = turn.toolCalls.length > 1 && turn.toolCalls.every((c) => byName.get(c.name)?.via === 'handoff')
+    if (fanOut) ctx.log.add({ agent: name, kind: 'handoff', note: `in parallel: ${turn.toolCalls.map((c) => byName.get(c.name)?.def.name).join(', ')}` })
+    const outs = fanOut
+      ? await Promise.all(turn.toolCalls.map((c) => runTool(name, byName.get(c.name), c, ctx)))
+      : await (async () => {
+          const acc: Awaited<ReturnType<typeof runTool>>[] = []
+          for (const c of turn.toolCalls) {
+            const o = await runTool(name, byName.get(c.name), c, ctx)
+            acc.push(o)
+            if (o.stop) break
+          }
+          return acc
+        })()
+    for (const [i, out] of outs.entries()) {
       if (out.stop) return { answer: out.text, stoppedBecause: out.stop }
-      messages.push({ role: 'tool', toolCallId: c.id, content: out.text })
+      messages.push({ role: 'tool', toolCallId: turn.toolCalls[i]!.id, content: out.text })
     }
   }
   return { answer: 'I ran out of steps before finishing.', stoppedBecause: 'turns' }

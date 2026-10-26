@@ -34,6 +34,29 @@ describe('the crew', () => {
     expect(r.log.steps.some((s) => s.tool === 'shopping_list' && s.note === '1 to buy, 1 already home')).toBe(true)
   })
 
+  it('the lead fans out to several specialists in parallel', async () => {
+    let active = 0
+    let peak = 0
+    const slow = (text: string) => ({ text, toolCalls: [], inputTokens: 100, outputTokens: 10 })
+    const fanOutTurn = { text: '', toolCalls: [{ id: 'a', name: 'ask_planner', args: { task: 'repair the week' } }, { id: 'b', name: 'ask_shopper', args: { task: 'update the list' } }, { id: 'c', name: 'ask_pantry', args: { task: 'what to use first' } }], inputTokens: 600, outputTokens: 60 }
+    let leadTurns = 0
+    const model = {
+      id: 'probe', price: { input: 1, output: 4 },
+      async turn(messages: { role: string; content: string }[]) {
+        const system = messages[0]?.content ?? ''
+        if (system.startsWith('You run the household')) return leadTurns++ === 0 ? fanOutTurn : slow('Week fixed: Tuesday moved to Thursday, rice added.')
+        active++; peak = Math.max(peak, active)
+        await new Promise((r) => setTimeout(r, 20))
+        active--
+        return slow('done')
+      },
+    }
+    const r = await askCrew('Tuesday fell through, fix my week', 'general', opts({ model }))
+    expect(peak).toBe(3)
+    expect(r.log.steps.some((s) => s.note?.startsWith('in parallel: ask_planner, ask_shopper, ask_pantry'))).toBe(true)
+    expect(r.answer).toContain('Week fixed')
+  })
+
   it('an agent cannot use another agent’s tools', async () => {
     const model = scripted([call('kitchen_plan_add', { date: '2026-10-27', slot: 'dinner', recipeId: 'r1' }), say('done')])
     const r = await askCrew('plan dinner', 'general', opts({ model }))
