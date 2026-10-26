@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "ask": "tsx src/kitchen/cli.ts"
+    "ask": "tsx src/kitchen/cli.ts",
+    "serve": "tsx src/kitchen/serve.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

@@ -62,8 +62,9 @@ Pro is the all-day crew on glasses.
 
 ```
 npm install
-npm test                                    # 17 tests, no keys needed
+npm test                                    # 21 tests, no keys needed
 npm run ask -- shopping "what am I missing?"  # live: needs MODEL_API_KEY and GREENPLATE_MCP_TOKEN
+npm run serve                               # the service the glasses app calls; also needs CREW_APP_TOKEN
 ```
 
 License: MIT, GreenplateAi LLC.
