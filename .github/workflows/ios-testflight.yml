@@ -71,6 +71,11 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :MWDAT:AppLinkURLScheme" $P
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $P
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" $P
+          # An unsigned archive carries no entitlements, so stamp them in with a local ad-hoc
+          # signature; the export re-signs for distribution and keeps them.
+          APP=$(ls -d build/Crew.xcarchive/Products/Applications/*.app)
+          codesign --force --sign - --entitlements Crew/Crew.entitlements --generate-entitlement-der "$APP"
+          codesign -d --entitlements - "$APP" 2>/dev/null | grep -q HotspotConfiguration
 
       - name: Export signed for distribution, and check it
         working-directory: ios
