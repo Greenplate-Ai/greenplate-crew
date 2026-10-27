@@ -1,0 +1,91 @@
+# Signed build and upload to TestFlight (internal testers only), with Xcode's automatic signing
+# driven by an App Store Connect API key. Needs three repository secrets:
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 (the .p8 file, base64). The key needs the Admin role
+#   the first time, so Xcode can create the distribution certificate and profile in the cloud.
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      TEAM_ID: WL2WQBM43Q
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the secrets are set
+        env:
+          K: ${{ secrets.ASC_KEY_ID }}
+          I: ${{ secrets.ASC_ISSUER_ID }}
+          P: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          [ -n "$K" ] && [ -n "$I" ] && [ -n "$P" ] || { echo "::error::Set ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8_BASE64 in the repo secrets"; exit 1; }
+
+      - name: Pick the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      - name: Write the API key
+        env:
+          P: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          echo "$P" | base64 --decode > "$RUNNER_TEMP/asc/key.p8"
+          chmod 600 "$RUNNER_TEMP/asc/key.p8"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: brew install xcodegen && xcodegen generate
+
+      - name: Archive (signed)
+        working-directory: ios
+        env:
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          BUILD=$((100 + ${{ github.run_number }}))
+          xcodebuild archive \
+            -project GreenplateCrew.xcodeproj -scheme GreenplateCrew -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/Crew.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/key.p8" -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$BUILD" \
+            2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" || true
+          grep -q "ARCHIVE SUCCEEDED" archive.log
+
+      - name: Export and upload to TestFlight
+        working-directory: ios
+        env:
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/Crew.xcarchive -exportOptionsPlist ci/ExportOptions.plist -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/key.p8" -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" \
+            2>&1 | tee export.log | grep -E "error:|Upload|EXPORT (SUCCEEDED|FAILED)" || true
+          grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" export.log
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          path: |
+            ios/archive.log
+            ios/export.log

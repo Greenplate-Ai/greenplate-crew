@@ -73,6 +73,8 @@
 	<string>Kitchen Crew looks at the groceries you pick up so it can check them off your list. Frames are not saved.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kitchen Crew listens for "hey crew" so you can ask without touching your phone.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
