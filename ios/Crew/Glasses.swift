@@ -22,6 +22,8 @@ final class Glasses: ObservableObject {
 
   /// A finished sentence heard by the glasses' microphones.
   var onHeard: ((String) -> Void)?
+  /// Someone is mid-sentence (a partial transcript arrived).
+  var onHearing: (() -> Void)?
   /// A short press of the capture button.
   var onButton: (() -> Void)?
   /// Press and hold of the capture button.
@@ -239,6 +241,7 @@ final class Glasses: ObservableObject {
         guard let self else { return }
         self.heard = result.text
         if result.isFinal, !result.text.isEmpty { self.onHeard?(result.text) }
+        else if !result.text.isEmpty { self.onHearing?() }
       }
     }.store(into: &tokens)
     // The recognizer stops on its own (silence, a photo, the glasses coming off). Meta's sample

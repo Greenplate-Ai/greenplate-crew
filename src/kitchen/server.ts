@@ -86,8 +86,12 @@ export function crewServer(d: ServerDeps) {
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
       }, id)
+      const started = Date.now()
       work.then((r) => {
+        // Start the voice now, so the app's /speak for this answer finds it ready (or in flight) in the cache.
+        if (d.speak && r.answer) d.speak(r.answer).catch(() => {})
         Object.assign(run, { status: 'done', answer: r.answer, log: r.log, stoppedBecause: r.stoppedBecause, question: undefined, resolve: undefined })
+        console.log(`ask answered in ${Date.now() - started} ms (${d.kitchen ? 'crew' : 'talk'}, ${history.length} lines of history)`)
       }).catch((e: Error) => { Object.assign(run, { status: 'failed', answer: `Something went wrong: ${e.message}` }) })
       return send(res, 202, { runId: id })
     }

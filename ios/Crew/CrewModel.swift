@@ -53,6 +53,7 @@ final class CrewModel: ObservableObject {
     chats = start
     currentChat = start[0].id
     glasses.onHeard = { [weak self] text in self?.heard(text) }
+    glasses.onHearing = { [weak self] in self?.hearing() }
     glasses.onButton = { [weak self] in self?.button() }
     glasses.onLongPress = { [weak self] in self?.longPress() }
     glasses.onLaunched = { [weak self] in Task { await self?.glasses.connect(); await self?.say("Crew's here.") } }
@@ -127,14 +128,30 @@ final class CrewModel: ObservableObject {
   @Published private(set) var awaitingRequest = false
   private var awaitTimeout: Task<Void, Never>?
 
+  /// Opens the no-"crew" window. The clock starts only once the glasses are listening again (the
+  /// recognizer is off while the crew speaks and takes a moment to come back), and restarts
+  /// whenever a sentence is in progress, so a slow or long reply isn't cut off.
   private func listenForRequest(seconds: Double) {
     awaitingRequest = true
+    awaitWindow = seconds
     awaitTimeout?.cancel()
     awaitTimeout = Task { [weak self] in
+      for _ in 0..<50 { // up to 10 s for the recognizer to come back
+        guard let self, !Task.isCancelled else { return }
+        if self.glasses.listening { break }
+        try? await Task.sleep(for: .milliseconds(200))
+      }
       try? await Task.sleep(for: .seconds(seconds))
       guard !Task.isCancelled else { return }
       self?.awaitingRequest = false
     }
+  }
+  private var awaitWindow: Double = 12
+
+  /// A sentence is in progress: keep the window open.
+  private func hearing() {
+    guard awaitingRequest else { return }
+    listenForRequest(seconds: awaitWindow)
   }
 
   private func heard(_ text: String) {
@@ -205,8 +222,8 @@ final class CrewModel: ObservableObject {
           busy = false // free for the next question while the answer is spoken
           await say(answer)
           glasses.reviveSpeech()
-          // Follow-ups don't need "crew": the next sentence within 8 s continues the conversation.
-          listenForRequest(seconds: 8)
+          // Follow-ups don't need "crew": the next sentence continues the conversation.
+          listenForRequest(seconds: 12)
           return
         }
       }

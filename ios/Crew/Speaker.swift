@@ -17,6 +17,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     synth.delegate = self
     let audio = AVAudioSession.sharedInstance()
     try? audio.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+    try? audio.setActive(true) // ready at launch, so the first line doesn't wait for audio to start up
   }
 
   /// Speaks and returns when done, so the next listen does not hear the crew itself.
