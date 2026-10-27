@@ -48,7 +48,21 @@ final class Glasses: ObservableObject {
   }
 
   func register() async {
-    do { try await Wearables.shared.startRegistration() } catch { link = .failed("Registration: \(error)") }
+    do {
+      try await Wearables.shared.startRegistration()
+    } catch let e as RegistrationError {
+      switch e {
+      case .alreadyRegistered:
+        registered = true
+        if session == nil { link = .registered }
+      case .configurationInvalid: link = .failed("The app's Meta setup is invalid. This needs a new build, not a retry.")
+      case .metaAINotInstalled: link = .failed("Install the Meta AI app, then tap Register.")
+      case .networkUnavailable: link = .failed("No internet connection. Check Wi-Fi, then tap Register.")
+      default: link = .failed("Registration failed. Open the Meta AI app, then tap Register again.")
+      }
+    } catch {
+      link = .failed("Registration failed: \(error.localizedDescription)")
+    }
   }
 
   func handle(url: URL) async {
