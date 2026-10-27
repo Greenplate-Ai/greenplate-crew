@@ -37,6 +37,7 @@ final class CrewModel: ObservableObject {
   init() {
     glasses.onHeard = { [weak self] text in self?.heard(text) }
     glasses.onButton = { [weak self] in self?.button() }
+    glasses.onLongPress = { [weak self] in self?.longPress() }
     glasses.onLaunched = { [weak self] in Task { await self?.glasses.connect(); await self?.say("Crew's here.") } }
   }
 
@@ -51,9 +52,20 @@ final class CrewModel: ObservableObject {
 
   // MARK: what the glasses hear
 
+  /// Set by a capture-button press: the next sentence is the request, no "crew" needed.
+  private var awaitingRequest = false
+  private var awaitTimeout: Task<Void, Never>?
+
   private func heard(_ text: String) {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = t.lowercased()
+    if awaitingRequest, pendingApproval == nil, !t.isEmpty {
+      awaitingRequest = false
+      awaitTimeout?.cancel()
+      let request = lower.hasPrefix("crew") ? String(t.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?")) : t
+      Task { await ask(request) }
+      return
+    }
     if let decide = pendingApproval {
       if lower.hasPrefix("yes") || lower.hasPrefix("yeah") || lower.hasPrefix("do it") { pendingApproval = nil; decide(true) }
       else if lower.hasPrefix("no") || lower.hasPrefix("don't") || lower.hasPrefix("stop") { pendingApproval = nil; decide(false) }
@@ -72,8 +84,22 @@ final class CrewModel: ObservableObject {
     }
   }
 
-  /// The capture button starts or ends a shopping trip.
+  /// Press: the crew says "Yes?" and takes the next sentence as the request (push to talk).
+  /// Works even if always-on listening has stopped, because it starts the recognizer again.
   private func button() {
+    guard !busy else { return }
+    glasses.reviveSpeech()
+    awaitingRequest = true
+    awaitTimeout?.cancel()
+    awaitTimeout = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(10))
+      self?.awaitingRequest = false
+    }
+    Task { await speaker.say("Yes?") }
+  }
+
+  /// Press and hold: start or end a shopping trip.
+  private func longPress() {
     Task { shopping ? await endShopping() : await startShopping() }
   }
 

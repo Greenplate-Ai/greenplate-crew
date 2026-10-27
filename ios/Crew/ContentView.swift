@@ -219,7 +219,7 @@ struct ShoppingView: View {
               Text("Start a shopping trip").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
             }
             .buttonStyle(.borderedProminent).tint(Theme.green)
-            Text("You can also press the capture button on the glasses.").font(.footnote).foregroundStyle(Theme.muted)
+            Text("You can also press and hold the capture button on the glasses.").font(.footnote).foregroundStyle(Theme.muted)
           }
         }
         .padding(16)

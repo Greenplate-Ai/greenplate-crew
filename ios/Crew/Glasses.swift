@@ -24,6 +24,8 @@ final class Glasses: ObservableObject {
   var onHeard: ((String) -> Void)?
   /// A short press of the capture button.
   var onButton: (() -> Void)?
+  /// Press and hold of the capture button.
+  var onLongPress: (() -> Void)?
   /// "Hey Meta, start Kitchen Crew".
   var onLaunched: (() -> Void)?
 
@@ -278,8 +280,11 @@ final class Glasses: ObservableObject {
     guard let inputs = try? s.addInputs(configuration: config) else { return }
     tasks.append(Task { [weak self] in
       for await event in inputs.events {
-        if case let .capture(press, source, _) = event, press == .shortPress, source == .captureButton {
+        guard case let .capture(press, source, _) = event, source == .captureButton else { continue }
+        if press == .shortPress {
           self?.onButton?()
+        } else if String(describing: press).lowercased().contains("long") {
+          self?.onLongPress?()
         }
       }
     })
