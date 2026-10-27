@@ -122,14 +122,25 @@ final class CrewModel: ObservableObject {
 
   // MARK: what the glasses hear
 
-  /// Set by a capture-button press: the next sentence is the request, no "crew" needed.
-  private var awaitingRequest = false
+  /// Set by a capture-button press, and for a few seconds after each answer: the next sentence
+  /// is the request, no "crew" needed, so a conversation flows like one.
+  @Published private(set) var awaitingRequest = false
   private var awaitTimeout: Task<Void, Never>?
+
+  private func listenForRequest(seconds: Double) {
+    awaitingRequest = true
+    awaitTimeout?.cancel()
+    awaitTimeout = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(seconds))
+      guard !Task.isCancelled else { return }
+      self?.awaitingRequest = false
+    }
+  }
 
   private func heard(_ text: String) {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = t.lowercased()
-    if awaitingRequest, pendingApproval == nil, !t.isEmpty {
+    if awaitingRequest, pendingApproval == nil, !busy, !t.isEmpty {
       awaitingRequest = false
       awaitTimeout?.cancel()
       let request = lower.hasPrefix("crew") ? String(t.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?")) : t
@@ -159,12 +170,7 @@ final class CrewModel: ObservableObject {
   private func button() {
     guard !busy else { return }
     glasses.reviveSpeech()
-    awaitingRequest = true
-    awaitTimeout?.cancel()
-    awaitTimeout = Task { [weak self] in
-      try? await Task.sleep(for: .seconds(10))
-      self?.awaitingRequest = false
-    }
+    listenForRequest(seconds: 10)
     Task { await say("Yes?") }
   }
 
@@ -199,6 +205,8 @@ final class CrewModel: ObservableObject {
           busy = false // free for the next question while the answer is spoken
           await say(answer)
           glasses.reviveSpeech()
+          // Follow-ups don't need "crew": the next sentence within 8 s continues the conversation.
+          listenForRequest(seconds: 8)
           return
         }
       }
