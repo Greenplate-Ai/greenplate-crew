@@ -1,0 +1,8 @@
+# Run on the home server (i2-ci-1):  docker compose -f deploy/compose.yml up -d --build
+services:
+  crew:
+    build: ..
+    env_file: .env
+    ports:
+      - "8787:8787"
+    restart: unless-stopped

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "ask": "tsx src/kitchen/cli.ts",
-    "serve": "tsx src/kitchen/serve.ts"
+    "serve": "tsx src/kitchen/serve.ts",
+    "voice-sample": "tsx src/kitchen/voice-sample.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

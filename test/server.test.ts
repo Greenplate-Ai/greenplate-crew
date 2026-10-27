@@ -79,4 +79,15 @@ describe('crew service', () => {
     const noVoice = await start()
     expect((await noVoice('POST', '/speak', { text: 'hi' })).status).toBe(404)
   })
+
+  it('reports health without the app token, and names what is missing', async () => {
+    const server = crewServer({ appToken: TOKEN, canWrite: false, missing: ['MODEL_API_KEY'] })
+    await new Promise<void>((r) => server.listen(0, r))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const h = await (await fetch(`${base}/health`)).json()
+    expect(h).toEqual({ ok: true, voice: false, crew: false, missing: ['MODEL_API_KEY'] })
+    const ask = await fetch(`${base}/ask`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` }, body: '{"request":"hi"}' })
+    expect(ask.status).toBe(503)
+    server.close()
+  })
 })

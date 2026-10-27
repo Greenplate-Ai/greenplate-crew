@@ -1,0 +1,7 @@
+node_modules
+ios
+design
+test
+.git
+*.mp3
+deploy/.env

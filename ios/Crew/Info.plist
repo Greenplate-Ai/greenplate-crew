@@ -63,6 +63,11 @@
 	<array>
 		<string>com.meta.ar.wearable</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Kitchen Crew connects to your Meta glasses over Bluetooth so you can ask the crew for help hands-free.</string>
 	<key>NSLocalNetworkUsageDescription</key>

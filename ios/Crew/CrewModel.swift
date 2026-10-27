@@ -98,6 +98,9 @@ final class CrewModel: ObservableObject {
           return
         }
       }
+    } catch CrewError.http(503, _) {
+      lines.append(Line(who: "Crew", text: "The crew service is running but still needs its keys."))
+      await say("I'm here, but the crew still needs its keys before I can answer.")
     } catch {
       lines.append(Line(who: "Crew", text: error.localizedDescription))
       await say("I couldn't reach the crew.")

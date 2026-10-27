@@ -28,9 +28,11 @@ interface RunState {
 }
 
 export interface ServerDeps {
-  model: Model
-  kitchen: Kitchen
-  eyes: (jpegBase64: string) => Promise<Seen>
+  /** Missing pieces leave the service up: /health and /speak still work, the rest answer 503 naming what's missing. */
+  model?: Model
+  kitchen?: Kitchen
+  eyes?: (jpegBase64: string) => Promise<Seen>
+  missing?: string[]
   speak?: Speak
   canWrite: boolean
   appToken: string
@@ -45,9 +47,19 @@ export function crewServer(d: ServerDeps) {
   const today = d.today ?? (() => new Date().toISOString().slice(0, 10))
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method === 'GET' && req.url === '/health') {
+      return send(res, 200, { ok: true, voice: !!d.speak, crew: !!(d.model && d.kitchen), missing: d.missing ?? [] })
+    }
     if (req.headers.authorization !== `Bearer ${d.appToken}`) return send(res, 401, { error: 'unauthorized' })
     const url = new URL(req.url ?? '/', 'http://crew')
     const parts = url.pathname.split('/').filter(Boolean)
+
+    const needsCrew = (req.method === 'POST' && (url.pathname === '/ask' || parts[0] === 'shopping')) || parts[0] === 'runs'
+    if (needsCrew && !(d.model && d.kitchen)) {
+      return send(res, 503, { error: 'the crew is not set up yet', missing: d.missing ?? [] })
+    }
+    const model = d.model as Model
+    const kitchen = d.kitchen as Kitchen
 
     if (req.method === 'POST' && url.pathname === '/ask') {
       const body = await json(req)
@@ -58,7 +70,7 @@ export function crewServer(d: ServerDeps) {
       const run: RunState = { status: 'running' }
       runs.set(id, run)
       askCrew(request, mode, {
-        model: d.model, kitchen: d.kitchen, canWrite: d.canWrite, today: today(),
+        model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
       }, id).then((r) => {
@@ -87,8 +99,8 @@ export function crewServer(d: ServerDeps) {
       const body = await json(req)
       const from = String(body.from ?? today())
       const to = String(body.to ?? from)
-      const list = await buildShoppingList(d.kitchen, from, to)
-      const pantry = await d.kitchen.call('kitchen_pantry_list')
+      const list = await buildShoppingList(kitchen, from, to)
+      const pantry = await kitchen.call('kitchen_pantry_list')
       const names = ((pantry.data as { items?: { name: string }[] })?.items ?? []).map((p) => p.name)
       const id = randomUUID()
       trips.set(id, { list, pantry: names, checked: new Set(), announced: new Set() })
@@ -113,6 +125,7 @@ export function crewServer(d: ServerDeps) {
         const body = await json(req, 4_000_000)
         const jpeg = String(body.jpegBase64 ?? '')
         if (!jpeg) return send(res, 400, { error: 'jpegBase64 is required' })
+        if (!d.eyes) return send(res, 503, { error: 'vision is not set up yet', missing: d.missing ?? [] })
         const seen = await d.eyes(jpeg) // the frame is not kept after this call
         return send(res, 200, { seen: seen.item, say: noticeItem(trip, seen) })
       }

@@ -5,3 +5,5 @@ runs/
 .env.*
 !.env.example
 *.log
+deploy/.env
+*.mp3
