@@ -14,6 +14,8 @@ final class Glasses: ObservableObject {
   @Published private(set) var link: Link = .notRegistered
   @Published private(set) var heard: String = ""
   @Published private(set) var cameraOn = false
+  /// True while the glasses' speech recognizer is running and can hear "crew, ...".
+  @Published private(set) var listening = false
   @Published private(set) var registered = false
   /// What the Meta AI app reports for each pair: "RB Meta 01LT: connected, compatible".
   @Published private(set) var deviceReport: [String] = []
@@ -26,6 +28,9 @@ final class Glasses: ObservableObject {
   var onLaunched: (() -> Void)?
 
   private var session: DeviceSession?
+  private var speech: Speech?
+  private var speechStarted = false
+  private var reviving: Task<Void, Never>?
   private var camera: Camera?
   private var latestFrame: VideoFrame?
   private var tokens: [any AnyListenerToken] = []
@@ -95,9 +100,20 @@ final class Glasses: ObservableObject {
       attachButton(s)
       link = .connected
       tasks.append(Task { [weak self] in
-        for await state in s.stateStream() where state == .stopped {
-          self?.dropSession()
-          return
+        for await state in s.stateStream() {
+          guard let self else { return }
+          switch state {
+          case .stopped:
+            self.dropSession()
+            return
+          case .paused:
+            self.listening = false
+          case .started:
+            // Back from a pause (glasses off, then on): bring the recognizer back.
+            if self.speech?.state == .stopped { self.reviveSpeech() }
+          default:
+            break
+          }
         }
       })
     } catch {
@@ -184,6 +200,10 @@ final class Glasses: ObservableObject {
 
   private func dropSession() {
     session = nil
+    speech = nil
+    listening = false
+    reviving?.cancel()
+    reviving = nil
     camera = nil
     tokens.removeAll()
     cameraTokens.removeAll()
@@ -192,15 +212,48 @@ final class Glasses: ObservableObject {
   }
 
   private func attachSpeech(_ s: DeviceSession) {
-    guard let speech = try? s.addSpeech() else { return }
-    speech.transcriptionPublisher.listen { [weak self] result in
+    guard let sp = try? s.addSpeech() else { return }
+    speech = sp
+    speechStarted = false
+    sp.transcriptionPublisher.listen { [weak self] result in
       Task { @MainActor in
         guard let self else { return }
         self.heard = result.text
         if result.isFinal, !result.text.isEmpty { self.onHeard?(result.text) }
       }
     }.store(into: &tokens)
-    speech.start()
+    // The recognizer stops on its own (silence, a photo, the glasses coming off). Meta's sample
+    // starts it again; so do we. "stopped" is also its first state, so only revive after a start.
+    sp.statePublisher.listen { [weak self] state in
+      Task { @MainActor in
+        guard let self else { return }
+        switch state {
+        case .started:
+          self.speechStarted = true
+          self.listening = true
+        case .stopped:
+          self.listening = false
+          if self.speechStarted { self.reviveSpeech() }
+        default:
+          break
+        }
+      }
+    }.store(into: &tokens)
+    sp.start()
+  }
+
+  /// Starts the recognizer again, a few tries a second apart, while the session is alive.
+  func reviveSpeech() {
+    guard reviving == nil else { return }
+    reviving = Task { [weak self] in
+      for _ in 1...5 {
+        try? await Task.sleep(for: .seconds(1))
+        guard let self, let sp = self.speech, self.session != nil else { break }
+        if sp.state != .stopped { break }
+        sp.start()
+      }
+      self?.reviving = nil
+    }
   }
 
   private func attachButton(_ s: DeviceSession) {

@@ -119,7 +119,7 @@ struct CrewView: View {
       VStack(spacing: 0) {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
-            GlassesBar(subtitle: glasses.link == .connected ? "Say \"crew, ...\" to ask" : "Tap to set up your glasses", action: openGlasses)
+            GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (glasses.listening ? "Listening. Say \"crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
             if !glasses.heard.isEmpty {
               Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted)
             }
