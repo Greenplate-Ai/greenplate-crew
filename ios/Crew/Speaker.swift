@@ -19,11 +19,34 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     try? AVAudioSession.sharedInstance().setActive(true)
     finished?.resume()
     let u = AVSpeechUtterance(string: text)
-    u.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+    u.voice = Self.bestVoice()
+    u.rate = AVSpeechUtteranceDefaultSpeechRate
+    u.prefersAssistiveTechnologySettings = false
     await withCheckedContinuation { c in
       finished = c
       synth.speak(u)
     }
+  }
+
+  /// The most natural English voice on this phone: Premium, then Enhanced, then the default.
+  /// Premium and Enhanced voices are free downloads in Settings > Accessibility > Spoken Content > Voices.
+  static func bestVoice() -> AVSpeechSynthesisVoice? {
+    let english = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en-US") }
+    if let v = english.first(where: { $0.quality == .premium }) { return v }
+    if let v = english.first(where: { $0.quality == .enhanced }) { return v }
+    return AVSpeechSynthesisVoice(language: "en-US")
+  }
+
+  /// "Zoe (Premium)", shown in Settings so it's clear which voice is in use.
+  var voiceName: String {
+    guard let v = Self.bestVoice() else { return "System default" }
+    let q: String
+    switch v.quality {
+    case .premium: q = "Premium"
+    case .enhanced: q = "Enhanced"
+    default: q = "Basic"
+    }
+    return "\(v.name) (\(q))"
   }
 
   nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) {

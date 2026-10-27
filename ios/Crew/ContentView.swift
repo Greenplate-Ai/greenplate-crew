@@ -320,6 +320,16 @@ struct SettingsView: View {
             .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
           SecureField("App token", text: $crew.appToken)
         }
+        Section {
+          HStack {
+            Text("Voice")
+            Spacer()
+            Text(crew.voiceName).foregroundStyle(Theme.muted)
+          }
+          Button("Play a test line") { Task { await crew.testVoice() } }
+        } header: { Text("Voice") } footer: {
+          Text("For a natural voice, download one free: iPhone Settings > Accessibility > Spoken Content > Voices > English > pick one marked Premium or Enhanced. The app uses the best one installed.")
+        }
         Section("Ask mode") {
           Picker("Mode", selection: $crew.mode) {
             ForEach(CrewModel.modes, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ")) }
