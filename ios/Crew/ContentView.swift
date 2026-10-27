@@ -46,6 +46,7 @@ struct ContentView: View {
         .tag(3)
     }
     .tint(Theme.greenDeep)
+    .preferredColorScheme(.light) // the brand screens are light; dark mode turned the titles white on light
     .onAppear { if !glasses.registered { tab = 2 } }
   }
 }
