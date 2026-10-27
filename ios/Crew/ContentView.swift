@@ -151,12 +151,17 @@ struct CrewView: View {
   var body: some View {
     NavigationStack {
       VStack(spacing: 0) {
+        // Pinned above the chat, so messages scroll beneath it instead of sliding it under the title.
+        VStack(alignment: .leading, spacing: 8) {
+          GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (crew.awaitingRequest ? "Go ahead, I'm listening" : glasses.listening ? "Listening. Say \"crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
+          if !glasses.heard.isEmpty {
+            Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+          }
+        }
+        .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
+        ScrollViewReader { scroller in
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
-            GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (crew.awaitingRequest ? "Go ahead, I'm listening" : glasses.listening ? "Listening. Say \"crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
-            if !glasses.heard.isEmpty {
-              Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted)
-            }
             if crew.lines.isEmpty {
               VStack(alignment: .leading, spacing: 6) {
                 Text("Ask the crew").font(.headline)
@@ -188,8 +193,15 @@ struct CrewView: View {
                 }
               }
             }
+            Color.clear.frame(height: 1).id("bottom")
           }
           .padding(16)
+        }
+        // Follow the conversation: jump to the newest message as it arrives, and when a chat opens.
+        .onAppear { scroller.scrollTo("bottom", anchor: .bottom) }
+        .onChange(of: crew.lines.count) { withAnimation(.easeOut(duration: 0.25)) { scroller.scrollTo("bottom", anchor: .bottom) } }
+        .onChange(of: crew.currentChat) { scroller.scrollTo("bottom", anchor: .bottom) }
+        .onChange(of: crew.waitingForApproval) { withAnimation { scroller.scrollTo("bottom", anchor: .bottom) } }
         }
         HStack(spacing: 8) {
           TextField("Ask the crew", text: $typed)
