@@ -13,6 +13,7 @@ final class CrewModel: ObservableObject {
   @Published private(set) var steps: [String] = []
   @Published private(set) var busy = false
   @Published private(set) var shopping = false
+  /// Developer override; empty means the address built into the app (Info.plist CrewServiceURL).
   @Published var serverURL: String = UserDefaults.standard.string(forKey: "serverURL") ?? "" {
     didSet { UserDefaults.standard.set(serverURL, forKey: "serverURL") }
   }
@@ -40,8 +41,12 @@ final class CrewModel: ObservableObject {
   }
 
   private var client: CrewClient? {
-    guard let url = URL(string: serverURL), !appToken.isEmpty else { return nil }
-    return CrewClient(baseURL: url, token: appToken)
+    let builtIn = Bundle.main.object(forInfoDictionaryKey: "CrewServiceURL") as? String ?? ""
+    let builtInToken = Bundle.main.object(forInfoDictionaryKey: "CrewAppToken") as? String ?? ""
+    let address = serverURL.isEmpty ? builtIn : serverURL
+    let token = appToken.isEmpty ? builtInToken : appToken
+    guard !address.isEmpty, let url = URL(string: address), !token.isEmpty else { return nil }
+    return CrewClient(baseURL: url, token: token)
   }
 
   // MARK: what the glasses hear

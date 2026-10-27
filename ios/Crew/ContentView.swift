@@ -276,11 +276,13 @@ struct GlassesView: View {
             case .connecting, .registering:
               ProgressView().frame(maxWidth: .infinity)
             default:
-              Button { Task { await glasses.connect() } } label: {
-                Text(glasses.link == .registered ? "Connect" : "Try connecting").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+              Button { Task { await glasses.setUp() } } label: {
+                Text(glasses.registered ? "Connect glasses" : "Set up my glasses").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
               }
               .buttonStyle(.borderedProminent).tint(Theme.green)
-              Button("Register with Meta AI") { Task { await glasses.register() } }
+              Text(glasses.registered ? "Put your glasses on. Kitchen Crew connects by itself when you open it." : "Meta AI opens for a moment to approve Kitchen Crew, then you're back here and connected.")
+                .font(.footnote).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+              Button("Register again with Meta AI") { Task { await glasses.register() } }
                 .font(.subheadline).foregroundStyle(Theme.greenDeep)
             }
           }
@@ -311,15 +313,11 @@ struct GlassesView: View {
 
 struct SettingsView: View {
   @EnvironmentObject var crew: CrewModel
+  @State private var showDeveloper = false
 
   var body: some View {
     NavigationStack {
       Form {
-        Section("Crew service") {
-          TextField("https://crew.example.com", text: $crew.serverURL)
-            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-          SecureField("App token", text: $crew.appToken)
-        }
         Section {
           HStack {
             Text("Voice")
@@ -327,17 +325,17 @@ struct SettingsView: View {
             Text(crew.voiceName).foregroundStyle(Theme.muted)
           }
           Button("Play a test line") { Task { await crew.testVoice() } }
-        } header: { Text("Voice") } footer: {
-          Text("For a natural voice, download one free: iPhone Settings > Accessibility > Spoken Content > Voices > English > pick one marked Premium or Enhanced. The app uses the best one installed.")
-        }
-        Section("Ask mode") {
-          Picker("Mode", selection: $crew.mode) {
-            ForEach(CrewModel.modes, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ")) }
-          }
-        }
+        } header: { Text("Voice") }
         Section {
-          Text("Camera frames go to the crew service to name the item in your hand, and are not saved anywhere.")
+          Text("Camera frames go to the crew to name the item in your hand, and are not saved anywhere.")
             .font(.footnote).foregroundStyle(Theme.muted)
+        } header: { Text("Privacy") }
+        Section {
+          DisclosureGroup("Developer", isExpanded: $showDeveloper) {
+            TextField("Crew service address (blank = built in)", text: $crew.serverURL)
+              .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+            SecureField("App token (blank = built in)", text: $crew.appToken)
+          }
         }
       }
       .navigationTitle("Settings")

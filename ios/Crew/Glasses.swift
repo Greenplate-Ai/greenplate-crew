@@ -45,13 +45,30 @@ final class Glasses: ObservableObject {
         guard let self else { return }
         switch state {
         case .registered:
+          let wasRegistered = self.registered
           self.registered = true
           if self.session == nil { self.link = .registered }
+          // No extra tap: connect as soon as registration completes (or on launch if already registered).
+          if !wasRegistered { Task { await self.connect() } }
         case .registering: self.link = .registering
         default: if self.session == nil { self.link = .notRegistered }
         }
       }
     })
+  }
+
+  /// The one setup action: register if needed (Meta AI opens and returns), otherwise connect.
+  func setUp() async {
+    if registered { await connect() } else { await register() }
+  }
+
+  /// Called when the app comes to the foreground: reconnect quietly if registered and not connected.
+  func resume() async {
+    guard registered else { return }
+    switch link {
+    case .connected, .connecting: return
+    default: await connect()
+    }
   }
 
   func register() async {

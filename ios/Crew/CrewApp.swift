@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct CrewApp: App {
   @StateObject private var crew = CrewModel()
+  @Environment(\.scenePhase) private var phase
 
   var body: some Scene {
     WindowGroup {
@@ -14,6 +15,9 @@ struct CrewApp: App {
           crew.glasses.listenForLaunch()
         }
         .onOpenURL { url in Task { await crew.glasses.handle(url: url) } }
+        .onChange(of: phase) { _, now in
+          if now == .active { Task { await crew.glasses.resume() } }
+        }
     }
   }
 }
