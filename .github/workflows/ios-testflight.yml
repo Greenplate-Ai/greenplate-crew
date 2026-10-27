@@ -51,7 +51,7 @@ jobs:
       - name: Check the app's settings survived
         working-directory: ios
         run: |
-          for k in MWDAT NSCameraUsageDescription NSMicrophoneUsageDescription NSBluetoothAlwaysUsageDescription CFBundleIconName UIUserInterfaceStyle; do
+          for k in MWDAT NSCameraUsageDescription NSMicrophoneUsageDescription NSBluetoothAlwaysUsageDescription CFBundleIconName; do
             grep -q "<key>$k</key>" Crew/Info.plist || { echo "::error::Info.plist lost $k"; exit 1; }
           done
           grep -q HotspotConfiguration Crew/Crew.entitlements || { echo "::error::entitlements lost Hotspot"; exit 1; }
@@ -65,6 +65,9 @@ jobs:
           # Written into the build's copy of Info.plist only; nothing is committed.
           [ -n "$URL" ] && /usr/libexec/PlistBuddy -c "Add :CrewServiceURL string $URL" Crew/Info.plist || echo "no CREW_SERVICE_URL variable"
           [ -n "$TOKEN" ] && /usr/libexec/PlistBuddy -c "Add :CrewAppToken string $TOKEN" Crew/Info.plist || echo "no CREW_APP_TOKEN secret"
+          # Shown in Settings > Developer, so the build on the phone can be matched to its commit.
+          /usr/libexec/PlistBuddy -c "Add :CrewBuildCommit string ${GITHUB_SHA::7}" Crew/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :CrewBuildDate string $(date -u '+%Y-%m-%dT%H:%MZ')" Crew/Info.plist
 
       - name: Archive (unsigned)
         working-directory: ios

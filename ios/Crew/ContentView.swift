@@ -2,25 +2,56 @@ import SwiftUI
 
 // MARK: - Theme (GreenplateAi tokens, see ios/DESIGN.md)
 
+// Light values, then the brand's dark values (greenplateai-v2 tokens, [data-theme="dark"]).
 enum Theme {
   static let green = Color(hex: 0x25A777)
-  static let greenDeep = Color(hex: 0x186F50)
+  static let greenDeep = Color(light: 0x186F50, dark: 0x3CC48F)
   static let forest = Color(hex: 0x0E2B1F)
   static let leaf = Color(hex: 0x4ECB37)
-  static let tint = Color(hex: 0xD9F2E7)
-  static let tint50 = Color(hex: 0xF3FAF6)
-  static let ink = Color(hex: 0x202428)
-  static let muted = Color(hex: 0x585E6A)
-  static let line = Color(hex: 0xE2DFDA)
-  static let canvas = Color(hex: 0xFBFAF9)
+  static let tint = Color(light: 0xD9F2E7, dark: 0x12362A)
+  static let tint50 = Color(light: 0xF3FAF6, dark: 0x0F2C22)
+  static let ink = Color(light: 0x202428, dark: 0xFBFAF9)
+  static let muted = Color(light: 0x585E6A, dark: 0xA8ADB8)
+  static let line = Color(light: 0xE2DFDA, dark: 0x2B2F36)
+  static let canvas = Color(light: 0xFBFAF9, dark: 0x0E1013)
+  static let surface = Color(light: 0xFFFFFF, dark: 0x171A1F)
+  static let bubbleInk = Color(light: 0x14402F, dark: 0xD9F2E7)
   static let forestText = Color(hex: 0xB9D6C6)
-  static let warn = Color(hex: 0x8A3B2E)
-  static let warnBg = Color(hex: 0xFCF7F6)
+  static let warn = Color(light: 0x8A3B2E, dark: 0xE8A898)
+  static let warnBg = Color(light: 0xFCF7F6, dark: 0x2A1A17)
 }
 
 extension Color {
-  init(hex: UInt32) {
-    self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+  init(hex: UInt32) { self.init(UIColor(hex: hex)) }
+  /// Follows the app's appearance (Settings > Appearance).
+  init(light: UInt32, dark: UInt32) {
+    self.init(UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light) })
+  }
+}
+
+extension UIColor {
+  convenience init(hex: UInt32) {
+    self.init(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+  }
+}
+
+/// Settings > Appearance. Light unless changed; set on the whole window so titles, text fields
+/// and the tab bar all follow it (preferredColorScheme alone left titles in dark-mode colors).
+enum Appearance: String, CaseIterable, Identifiable {
+  case light, dark, system
+  var id: String { rawValue }
+  var label: String {
+    switch self { case .light: "Light"; case .dark: "Dark"; case .system: "Match phone" }
+  }
+  static func apply(_ raw: String) {
+    let style: UIUserInterfaceStyle = switch Appearance(rawValue: raw) ?? .light {
+    case .light: .light
+    case .dark: .dark
+    case .system: .unspecified
+    }
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      scene.windows.forEach { $0.overrideUserInterfaceStyle = style }
+    }
   }
 }
 
@@ -29,6 +60,7 @@ extension Color {
 struct ContentView: View {
   @EnvironmentObject var glasses: Glasses
   @State private var tab = 0
+  @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
   var body: some View {
     TabView(selection: $tab) {
@@ -46,8 +78,8 @@ struct ContentView: View {
         .tag(3)
     }
     .tint(Theme.greenDeep)
-    .preferredColorScheme(.light) // the brand screens are light; dark mode turned the titles white on light
-    .onAppear { if !glasses.registered { tab = 2 } }
+    .onAppear { Appearance.apply(appearance); if !glasses.registered { tab = 2 } }
+    .onChange(of: appearance) { _, new in Appearance.apply(new) }
   }
 }
 
@@ -98,9 +130,9 @@ struct Bubble: View {
       if mine { Spacer(minLength: 48) }
       Text(line.text)
         .font(.body)
-        .foregroundStyle(mine ? Color(hex: 0x14402F) : Theme.ink)
+        .foregroundStyle(mine ? Theme.bubbleInk : Theme.ink)
         .padding(.horizontal, 14).padding(.vertical, 11)
-        .background(mine ? Theme.tint : .white, in: RoundedRectangle(cornerRadius: 18))
+        .background(mine ? Theme.tint : Theme.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(mine ? .clear : Theme.line, lineWidth: 1))
       if !mine { Spacer(minLength: 48) }
     }
@@ -144,7 +176,7 @@ struct CrewView: View {
                 }
               }
               .padding(16)
-              .background(.white, in: RoundedRectangle(cornerRadius: 18))
+              .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
               .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.green, lineWidth: 1.5))
             }
             if !crew.steps.isEmpty {
@@ -173,7 +205,7 @@ struct CrewView: View {
           .accessibilityLabel("Send")
         }
         .padding(4)
-        .background(.white, in: Capsule())
+        .background(Theme.surface, in: Capsule())
         .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
         .padding(.horizontal, 16).padding(.bottom, 10)
       }
@@ -314,7 +346,7 @@ struct GlassesView: View {
 
 struct SettingsView: View {
   @EnvironmentObject var crew: CrewModel
-  @State private var showDeveloper = false
+  @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
   var body: some View {
     NavigationStack {
@@ -328,18 +360,67 @@ struct SettingsView: View {
           Button("Play a test line") { Task { await crew.testVoice() } }
         } header: { Text("Voice") }
         Section {
+          Picker("Appearance", selection: $appearance) {
+            ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
+          }
+          .pickerStyle(.segmented)
+        } header: { Text("Appearance") }
+        Section {
           Text("Camera frames go to the crew to name the item in your hand, and are not saved anywhere.")
             .font(.footnote).foregroundStyle(Theme.muted)
         } header: { Text("Privacy") }
         Section {
-          DisclosureGroup("Developer", isExpanded: $showDeveloper) {
-            TextField("Crew service address (blank = built in)", text: $crew.serverURL)
-              .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-            SecureField("App token (blank = built in)", text: $crew.appToken)
-          }
-        }
+          NavigationLink("Developer") { DeveloperView() }
+        } footer: { Text(BuildInfo.short) }
       }
       .navigationTitle("Settings")
+    }
+  }
+}
+
+/// Which build is on the phone. CI writes CrewBuildCommit and CrewBuildDate into Info.plist;
+/// version and build number are Xcode's (the build number is the TestFlight build).
+enum BuildInfo {
+  private static func info(_ key: String) -> String { Bundle.main.object(forInfoDictionaryKey: key) as? String ?? "" }
+  static var version: String { info("CFBundleShortVersionString") }
+  static var build: String { info("CFBundleVersion") }
+  static var commit: String { let c = info("CrewBuildCommit"); return c.isEmpty ? "local" : c }
+  static var date: String { let d = info("CrewBuildDate"); return d.isEmpty ? "-" : d }
+  static var short: String { "Version \(version) (build \(build)) · \(commit)" }
+}
+
+struct DeveloperView: View {
+  @EnvironmentObject var crew: CrewModel
+  @State private var health = ""
+
+  var body: some View {
+    Form {
+      Section {
+        row("Version", BuildInfo.version)
+        row("Build", BuildInfo.build)
+        row("Commit", BuildInfo.commit)
+        row("Built", BuildInfo.date)
+      } header: { Text("This build") }
+      Section {
+        row("Address", crew.serviceAddress.isEmpty ? "not set" : crew.serviceAddress)
+        Button("Check connection") { Task { health = await crew.checkService() } }
+        if !health.isEmpty { Text(health).font(.footnote).foregroundStyle(Theme.muted).textSelection(.enabled) }
+      } header: { Text("Crew service") }
+      Section {
+        TextField("Crew service address (blank = built in)", text: $crew.serverURL)
+          .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+        SecureField("App token (blank = built in)", text: $crew.appToken)
+      } header: { Text("Override") } footer: { Text("Leave both blank to use what's built into this build.") }
+    }
+    .navigationTitle("Developer")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func row(_ label: String, _ value: String) -> some View {
+    HStack {
+      Text(label)
+      Spacer()
+      Text(value).foregroundStyle(Theme.muted).textSelection(.enabled)
     }
   }
 }

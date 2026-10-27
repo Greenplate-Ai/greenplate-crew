@@ -41,10 +41,23 @@ final class CrewModel: ObservableObject {
     glasses.onLaunched = { [weak self] in Task { await self?.glasses.connect(); await self?.say("Crew's here.") } }
   }
 
+  /// The crew service address in use: the developer override, else the one built into the app.
+  var serviceAddress: String {
+    serverURL.isEmpty ? (Bundle.main.object(forInfoDictionaryKey: "CrewServiceURL") as? String ?? "") : serverURL
+  }
+
+  /// For Settings > Developer: the service's /health reply (no token needed), or why it can't be reached.
+  func checkService() async -> String {
+    guard let url = URL(string: serviceAddress)?.appendingPathComponent("health") else { return "No address set." }
+    do {
+      let (data, _) = try await URLSession.shared.data(from: url)
+      return String(decoding: data, as: UTF8.self)
+    } catch { return "Can't reach it: \(error.localizedDescription)" }
+  }
+
   private var client: CrewClient? {
-    let builtIn = Bundle.main.object(forInfoDictionaryKey: "CrewServiceURL") as? String ?? ""
     let builtInToken = Bundle.main.object(forInfoDictionaryKey: "CrewAppToken") as? String ?? ""
-    let address = serverURL.isEmpty ? builtIn : serverURL
+    let address = serviceAddress
     let token = appToken.isEmpty ? builtInToken : appToken
     guard !address.isEmpty, let url = URL(string: address), !token.isEmpty else { return nil }
     return CrewClient(baseURL: url, token: token)
