@@ -46,6 +46,14 @@ jobs:
         working-directory: ios
         run: brew install xcodegen && xcodegen generate
 
+      - name: Check the app's settings survived
+        working-directory: ios
+        run: |
+          for k in MWDAT NSCameraUsageDescription NSMicrophoneUsageDescription NSBluetoothAlwaysUsageDescription CFBundleIconName; do
+            grep -q "<key>$k</key>" Crew/Info.plist || { echo "::error::Info.plist lost $k"; exit 1; }
+          done
+          grep -q HotspotConfiguration Crew/Crew.entitlements || { echo "::error::entitlements lost Hotspot"; exit 1; }
+
       - name: Archive (signed)
         working-directory: ios
         env:
@@ -62,6 +70,11 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$BUILD" \
             2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log
+          P=build/Crew.xcarchive/Products/Applications/*.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :MWDAT:AppLinkURLScheme" $P
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $P
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" $P
+          codesign -d --entitlements - build/Crew.xcarchive/Products/Applications/*.app 2>/dev/null | grep -q HotspotConfiguration || { echo "::error::signed app has no Hotspot entitlement"; exit 1; }
 
       - name: Export and upload to TestFlight
         working-directory: ios

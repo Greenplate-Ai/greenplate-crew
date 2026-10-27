@@ -19,10 +19,6 @@ targets:
     type: application
     platform: iOS
     sources: [Crew]
-    info:
-      path: Crew/Info.plist
-    entitlements:
-      path: Crew/Crew.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.greenplate.crew
