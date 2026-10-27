@@ -8,13 +8,13 @@ const TOKEN = 'test-token-0123456789abcdef'
 let close: (() => void) | null = null
 afterEach(() => { close?.(); close = null })
 
-async function start(model = scripted([say('ok')]), eyes = async () => ({ item: null as string | null, confidence: 0 })) {
+async function start(model = scripted([say('ok')]), eyes = async () => ({ item: null as string | null, confidence: 0 }), speak?: (t: string) => Promise<Buffer>) {
   const kitchen = fakeKitchen({
     pantry: [{ name: 'soy sauce' }, { name: 'eggs' }],
     plan: [{ date: '2026-10-27', slot: 'dinner', recipeId: 'r1', title: 'Fried rice' }],
     recipes: { r1: { title: 'Fried rice', servings: 2, ingredients: [{ name: 'egg' }, { name: 'green onions' }, { name: 'rice' }, { name: 'soy sauce' }] } },
   })
-  const server = crewServer({ model, kitchen, eyes, canWrite: true, appToken: TOKEN, today: () => '2026-10-26' })
+  const server = crewServer({ model, kitchen, eyes, speak, canWrite: true, appToken: TOKEN, today: () => '2026-10-26' })
   await new Promise<void>((r) => server.listen(0, r))
   close = () => server.close()
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -70,5 +70,13 @@ describe('crew service', () => {
     expect(c.body.say).toBeNull()
     const out = await req('POST', `/shopping/${trip.body.tripId}/checkout`)
     expect(out.body.say).toBe('Before you check out: you still need rice.')
+  })
+
+  it('asks for text before speaking, and says when no voice is configured', async () => {
+    const withVoice = await start(undefined, undefined, async (t) => Buffer.from(`mp3:${t}`))
+    expect((await withVoice('POST', '/speak', { text: '' })).status).toBe(400)
+    close?.()
+    const noVoice = await start()
+    expect((await noVoice('POST', '/speak', { text: 'hi' })).status).toBe(404)
   })
 })

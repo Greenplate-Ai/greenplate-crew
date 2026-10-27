@@ -23,7 +23,7 @@ final class CrewModel: ObservableObject {
   let glasses = Glasses()
   private let speaker = Speaker()
   var voiceName: String { speaker.voiceName }
-  func testVoice() async { await speaker.say("Hi, this is your kitchen crew. Ready when you are.") }
+  func testVoice() async { await say("Hi, this is your kitchen crew. Ready when you are.") }
   @Published private(set) var waitingForApproval = false
   private var pendingApproval: ((Bool) -> Void)? {
     didSet { waitingForApproval = pendingApproval != nil }
@@ -163,7 +163,11 @@ final class CrewModel: ObservableObject {
     trip = nil
   }
 
-  private func say(_ text: String) async { await speaker.say(text) }
+  /// The natural ElevenLabs voice from the crew service when it's reachable, the phone's voice otherwise.
+  private func say(_ text: String) async {
+    if let client, let audio = try? await client.speak(text), await speaker.play(audio) { return }
+    await speaker.say(text)
+  }
 
   private static func day(_ offset: Int) -> String {
     let d = Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date()

@@ -5,6 +5,7 @@
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
 //   POST /shopping/:id/frame {jpegBase64}           -> {say?}
 //   POST /shopping/:id/checkout                     -> {say}
+//   POST /speak          {text}                     -> audio/mpeg (404 when no voice is configured)
 // Auth: every request needs "Authorization: Bearer <CREW_APP_TOKEN>".
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
@@ -14,6 +15,7 @@ import { askCrew, type Mode } from './crew.js'
 import type { Kitchen } from './service.js'
 import { buildShoppingList } from './shopping.js'
 import { spokenQuestion } from './speak.js'
+import type { Speak } from './voice.js'
 import { noticeItem, remaining, type Seen, type ShoppingTrip } from './vision.js'
 
 interface RunState {
@@ -29,6 +31,7 @@ export interface ServerDeps {
   model: Model
   kitchen: Kitchen
   eyes: (jpegBase64: string) => Promise<Seen>
+  speak?: Speak
   canWrite: boolean
   appToken: string
   today?: () => string
@@ -90,6 +93,17 @@ export function crewServer(d: ServerDeps) {
       const id = randomUUID()
       trips.set(id, { list, pantry: names, checked: new Set(), announced: new Set() })
       return send(res, 200, { tripId: id, needs: list.needs.map((n) => n.name), unknownRecipes: list.unknownRecipes })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/speak') {
+      if (!d.speak) return send(res, 404, { error: 'no voice configured' })
+      const body = await json(req)
+      const text = String(body.text ?? '').trim()
+      if (!text) return send(res, 400, { error: 'text is required' })
+      const audio = await d.speak(text)
+      res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': audio.length })
+      res.end(audio)
+      return
     }
 
     if (parts[0] === 'shopping' && parts[1] && req.method === 'POST') {

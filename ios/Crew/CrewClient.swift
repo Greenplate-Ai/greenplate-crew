@@ -41,6 +41,21 @@ struct CrewClient {
     return s.say
   }
 
+  /// ElevenLabs audio for a line, from the crew service. Throws if the service has no voice set up.
+  func speak(_ text: String) async throws -> Data {
+    var req = URLRequest(url: baseURL.appendingPathComponent("speak"))
+    req.httpMethod = "POST"
+    req.timeoutInterval = 15
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+    let (data, res) = try await URLSession.shared.data(for: req)
+    guard let http = res as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else {
+      throw CrewError.http((res as? HTTPURLResponse)?.statusCode ?? 0, "no voice")
+    }
+    return data
+  }
+
   private func send<T: Decodable>(_ method: String, _ path: String, _ body: [String: Any]?) async throws -> T {
     var req = URLRequest(url: baseURL.appendingPathComponent(path))
     req.httpMethod = method

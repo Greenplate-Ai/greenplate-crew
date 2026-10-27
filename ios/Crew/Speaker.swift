@@ -3,9 +3,13 @@ import AVFoundation
 /// Speaks the crew's answers. With the glasses connected as a Bluetooth headset, iOS routes
 /// playback to their open-ear speakers.
 @MainActor
-final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
+final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
   private let synth = AVSpeechSynthesizer()
   private var finished: CheckedContinuation<Void, Never>?
+  private var player: AVAudioPlayer?
+  private var playDone: CheckedContinuation<Void, Never>?
+  /// Set when the last line came from the natural (server) voice, so Settings can say so.
+  private(set) var lastWasNatural = false
 
   override init() {
     super.init()
@@ -16,6 +20,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
 
   /// Speaks and returns when done, so the next listen does not hear the crew itself.
   func say(_ text: String) async {
+    lastWasNatural = false
     try? AVAudioSession.sharedInstance().setActive(true)
     finished?.resume()
     let u = AVSpeechUtterance(string: text)
@@ -26,6 +31,29 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
       finished = c
       synth.speak(u)
     }
+  }
+
+  /// Plays audio made by the crew service (the ElevenLabs voice). Returns false if it can't play.
+  func play(_ audio: Data) async -> Bool {
+    try? AVAudioSession.sharedInstance().setActive(true)
+    guard let p = try? AVAudioPlayer(data: audio) else { return false }
+    playDone?.resume()
+    player = p
+    p.delegate = self
+    lastWasNatural = true
+    await withCheckedContinuation { c in
+      playDone = c
+      if !p.play() { playDone = nil; c.resume() }
+    }
+    return true
+  }
+
+  nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    Task { @MainActor in self.playDone?.resume(); self.playDone = nil }
+  }
+
+  nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+    Task { @MainActor in self.playDone?.resume(); self.playDone = nil }
   }
 
   /// The most natural English voice on this phone: Premium, then Enhanced, then the default.
