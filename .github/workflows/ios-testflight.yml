@@ -1,4 +1,6 @@
-# Signed build and upload to TestFlight (internal testers only), with Xcode's automatic signing
+# Build and upload to TestFlight (internal testers only). Archive is ad-hoc signed (no certificate per
+# run: that hit Apple's certificate limit on 2026-10-27, entitlements kept); the export re-signs with the
+# cloud-managed distribution certificate,
 # driven by an App Store Connect API key. Needs three repository secrets:
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 (the .p8 file, base64). The key needs the Admin role
 #   the first time, so Xcode can create the distribution certificate and profile in the cloud.
@@ -65,9 +67,8 @@ jobs:
           xcodebuild archive \
             -project GreenplateCrew.xcodeproj -scheme GreenplateCrew -configuration Release \
             -destination 'generic/platform=iOS' -archivePath build/Crew.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc/key.p8" -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" \
-            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$BUILD" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- PROVISIONING_PROFILE_SPECIFIER= \
+            CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$BUILD" \
             2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log
           P=build/Crew.xcarchive/Products/Applications/*.app/Info.plist
