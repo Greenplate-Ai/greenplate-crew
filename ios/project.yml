@@ -30,6 +30,7 @@ targets:
         INFOPLIST_FILE: Crew/Info.plist
         CODE_SIGN_ENTITLEMENTS: Crew/Crew.entitlements
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - package: MWDAT
         product: MWDATCore
