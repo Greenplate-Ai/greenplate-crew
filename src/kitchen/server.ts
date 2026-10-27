@@ -13,6 +13,7 @@ import type { Model } from '../fleet/model.js'
 import type { RunLog } from '../fleet/runlog.js'
 import { askCrew, type Mode } from './crew.js'
 import type { Kitchen } from './service.js'
+import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
 import { spokenQuestion } from './speak.js'
 import type { Speak } from './voice.js'
@@ -48,14 +49,16 @@ export function crewServer(d: ServerDeps) {
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === 'GET' && req.url === '/health') {
-      return send(res, 200, { ok: true, voice: !!d.speak, crew: !!(d.model && d.kitchen), missing: d.missing ?? [] })
+      return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), missing: d.missing ?? [] })
     }
     if (req.headers.authorization !== `Bearer ${d.appToken}`) return send(res, 401, { error: 'unauthorized' })
     const url = new URL(req.url ?? '/', 'http://crew')
     const parts = url.pathname.split('/').filter(Boolean)
 
-    const needsCrew = (req.method === 'POST' && (url.pathname === '/ask' || parts[0] === 'shopping')) || parts[0] === 'runs'
-    if (needsCrew && !(d.model && d.kitchen)) {
+    // Talking (/ask, /runs) needs only the model; with no kitchen yet the crew just talks, no kitchen tools.
+    const needsModel = (req.method === 'POST' && url.pathname === '/ask') || parts[0] === 'runs'
+    const needsCrew = req.method === 'POST' && parts[0] === 'shopping'
+    if ((needsModel && !d.model) || (needsCrew && !(d.model && d.kitchen))) {
       return send(res, 503, { error: 'the crew is not set up yet', missing: d.missing ?? [] })
     }
     const model = d.model as Model
@@ -69,11 +72,12 @@ export function crewServer(d: ServerDeps) {
       const id = randomUUID()
       const run: RunState = { status: 'running' }
       runs.set(id, run)
-      askCrew(request, mode, {
+      const work = !d.kitchen ? talkOnly(model, request) : askCrew(request, mode, {
         model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
-      }, id).then((r) => {
+      }, id)
+      work.then((r) => {
         Object.assign(run, { status: 'done', answer: r.answer, log: r.log, stoppedBecause: r.stoppedBecause, question: undefined, resolve: undefined })
       }).catch((e: Error) => { Object.assign(run, { status: 'failed', answer: `Something went wrong: ${e.message}` }) })
       return send(res, 202, { runId: id })
@@ -136,6 +140,16 @@ export function crewServer(d: ServerDeps) {
   }
 
   return createServer((req, res) => { route(req, res).catch((e: Error) => send(res, 500, { error: e.message })) })
+}
+
+const TALK_ONLY = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses. Answer in one or two short, friendly spoken sentences, no lists or markdown. The person's GreenplateAi kitchen (pantry, meal plan, shopping list) is not connected yet: if they ask about it, say it will be once they connect GreenplateAi. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
+
+/** The crew with no kitchen connected: a plain spoken reply from the model, no tools. */
+async function talkOnly(model: Model, request: string): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string }> {
+  const first = await model.turn([{ role: 'system', content: TALK_ONLY }, { role: 'user', content: request }], [])
+  if (!soundsLikeCoaching(first.text)) return { answer: first.text.trim() }
+  const again = await model.turn([{ role: 'system', content: TALK_ONLY }, { role: 'user', content: request }, { role: 'assistant', content: first.text }, { role: 'user', content: REWRITE }], [])
+  return { answer: again.text.trim() }
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {

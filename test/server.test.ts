@@ -85,9 +85,23 @@ describe('crew service', () => {
     await new Promise<void>((r) => server.listen(0, r))
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     const h = await (await fetch(`${base}/health`)).json()
-    expect(h).toEqual({ ok: true, voice: false, crew: false, missing: ['MODEL_API_KEY'] })
+    expect(h).toEqual({ ok: true, voice: false, talk: false, crew: false, missing: ['MODEL_API_KEY'] })
     const ask = await fetch(`${base}/ask`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` }, body: '{"request":"hi"}' })
     expect(ask.status).toBe(503)
+    server.close()
+  })
+
+  it('talks with only the model when no kitchen is connected', async () => {
+    const model = { id: 'stub', price: { input: 0, output: 0 }, turn: async () => ({ text: "I'm good, ready when you are.", toolCalls: [], inputTokens: 0, outputTokens: 0 }) }
+    const server = crewServer({ appToken: TOKEN, canWrite: false, model, missing: ['GREENPLATE_MCP_TOKEN'] })
+    await new Promise<void>((r) => server.listen(0, r))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const auth = { authorization: `Bearer ${TOKEN}` }
+    const { runId } = await (await fetch(`${base}/ask`, { method: 'POST', headers: auth, body: '{"request":"how are you"}' })).json()
+    let run = { status: 'running', answer: '' }
+    for (let i = 0; i < 20 && run.status === 'running'; i++) run = await (await fetch(`${base}/runs/${runId}`, { headers: auth })).json()
+    expect(run).toMatchObject({ status: 'done', answer: "I'm good, ready when you are." })
+    expect((await fetch(`${base}/shopping/start`, { method: 'POST', headers: auth, body: '{}' })).status).toBe(503)
     server.close()
   })
 })
