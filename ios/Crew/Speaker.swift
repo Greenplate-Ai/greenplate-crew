@@ -41,23 +41,36 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   func play(_ audio: Data) async -> Bool {
     try? AVAudioSession.sharedInstance().setActive(true)
     guard let p = try? AVAudioPlayer(data: audio) else { return false }
-    playDone?.resume()
+    finishPlaying()
     player = p
     p.delegate = self
     lastWasNatural = true
     await withCheckedContinuation { c in
       playDone = c
-      if !p.play() { playDone = nil; c.resume() }
+      if !p.play() { finishPlaying(); return }
+      // Never leave the crew waiting if iOS doesn't report the end (route change, interruption).
+      let limit = p.duration + 1.5
+      Task { [weak self] in
+        try? await Task.sleep(for: .seconds(limit))
+        if self?.player === p { self?.finishPlaying() }
+      }
     }
     return true
   }
 
+  /// Resumes whoever is waiting on playback, exactly once.
+  private func finishPlaying() {
+    let c = playDone
+    playDone = nil
+    c?.resume()
+  }
+
   nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-    Task { @MainActor in self.playDone?.resume(); self.playDone = nil }
+    Task { @MainActor in self.finishPlaying() }
   }
 
   nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-    Task { @MainActor in self.playDone?.resume(); self.playDone = nil }
+    Task { @MainActor in self.finishPlaying() }
   }
 
   /// The most natural English voice on this phone: Premium, then Enhanced, then the default.

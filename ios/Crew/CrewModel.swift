@@ -6,10 +6,23 @@ import Security
 /// come into view.
 @MainActor
 final class CrewModel: ObservableObject {
-  struct Line: Identifiable { let id = UUID(); let who: String; let text: String }
+  struct Line: Identifiable, Codable { var id = UUID(); let who: String; let text: String }
+  /// One conversation. Kept on the phone (last 30 chats), newest first.
+  struct Chat: Identifiable, Codable {
+    var id = UUID()
+    var lines: [Line] = []
+    var updated = Date()
+    var title: String {
+      guard let first = lines.first(where: { $0.who == "You" })?.text else { return "New chat" }
+      return first.count > 40 ? String(first.prefix(40)) + "…" : first
+    }
+  }
 
   @Published var mode = "general"
-  @Published private(set) var lines: [Line] = []
+  @Published private(set) var chats: [Chat]
+  @Published private(set) var currentChat: UUID
+  /// The open chat's lines.
+  var lines: [Line] { chats.first(where: { $0.id == currentChat })?.lines ?? [] }
   @Published private(set) var steps: [String] = []
   @Published private(set) var busy = false
   @Published private(set) var shopping = false
@@ -35,6 +48,10 @@ final class CrewModel: ObservableObject {
   static let modes = ["general", "shopping", "capture", "cooking", "eating_out", "pantry_check"]
 
   init() {
+    let saved = CrewModel.loadChats()
+    let start = saved.isEmpty ? [Chat()] : saved
+    chats = start
+    currentChat = start[0].id
     glasses.onHeard = { [weak self] text in self?.heard(text) }
     glasses.onButton = { [weak self] in self?.button() }
     glasses.onLongPress = { [weak self] in self?.longPress() }
@@ -61,6 +78,46 @@ final class CrewModel: ObservableObject {
     let token = appToken.isEmpty ? builtInToken : appToken
     guard !address.isEmpty, let url = URL(string: address), !token.isEmpty else { return nil }
     return CrewClient(baseURL: url, token: token)
+  }
+
+  // MARK: chats
+
+  /// Starts a fresh chat (or stays on the current one if it's still empty).
+  func newChat() {
+    if lines.isEmpty { return }
+    let c = Chat()
+    chats.insert(c, at: 0)
+    currentChat = c.id
+    steps = []
+    saveChats()
+  }
+
+  func openChat(_ id: UUID) { currentChat = id; steps = [] }
+
+  func deleteChat(_ id: UUID) {
+    chats.removeAll { $0.id == id }
+    if chats.isEmpty { chats = [Chat()] }
+    if !chats.contains(where: { $0.id == currentChat }) { currentChat = chats[0].id }
+    saveChats()
+  }
+
+  private func add(_ who: String, _ text: String) {
+    guard let i = chats.firstIndex(where: { $0.id == currentChat }) else { return }
+    chats[i].lines.append(Line(who: who, text: text))
+    if chats[i].lines.count > 200 { chats[i].lines.removeFirst(chats[i].lines.count - 200) }
+    chats[i].updated = Date()
+    if i != 0 { chats.insert(chats.remove(at: i), at: 0) }
+    saveChats()
+  }
+
+  private static func loadChats() -> [Chat] {
+    guard let data = UserDefaults.standard.data(forKey: "chats"),
+          let saved = try? JSONDecoder().decode([Chat].self, from: data) else { return [] }
+    return saved
+  }
+
+  private func saveChats() {
+    if let data = try? JSONEncoder().encode(Array(chats.prefix(30))) { UserDefaults.standard.set(data, forKey: "chats") }
   }
 
   // MARK: what the glasses hear
@@ -123,30 +180,33 @@ final class CrewModel: ObservableObject {
     guard !busy else { return await say("Still on the last one.") }
     busy = true
     defer { busy = false }
-    lines.append(Line(who: "You", text: request))
+    let history = lines.suffix(10).map { ["who": $0.who, "text": $0.text] }
+    add("You", request)
     do {
-      let id = try await client.ask(request, mode: shopping ? "shopping" : mode)
+      let id = try await client.ask(request, mode: shopping ? "shopping" : mode, history: history)
       while true {
-        try await Task.sleep(for: .milliseconds(600))
+        try await Task.sleep(for: .milliseconds(250))
         let run = try await client.run(id)
         steps = run.steps
         if run.status == "waiting", let q = run.spoken {
-          lines.append(Line(who: "Crew", text: q))
+          add("Crew", q)
           await say(q)
           let yes = await waitForYesNo()
           try await client.answer(id, yes: yes)
         } else if run.status == "done" || run.status == "failed" {
           let answer = run.answer ?? "Done."
-          lines.append(Line(who: "Crew", text: answer))
+          add("Crew", answer)
+          busy = false // free for the next question while the answer is spoken
           await say(answer)
+          glasses.reviveSpeech()
           return
         }
       }
     } catch CrewError.http(503, _) {
-      lines.append(Line(who: "Crew", text: "The crew service is running but still needs its keys."))
+      add("Crew", "The crew service is running but still needs its keys.")
       await say("I'm here, but the crew still needs its keys before I can answer.")
     } catch {
-      lines.append(Line(who: "Crew", text: error.localizedDescription))
+      add("Crew", error.localizedDescription)
       await say("I couldn't reach the crew.")
     }
   }
@@ -179,7 +239,7 @@ final class CrewModel: ObservableObject {
       shopping = true
       await glasses.startCamera()
       let list = t.needs.isEmpty ? "Nothing on the list this week." : "\(t.needs.count) things on the list. First up: \(t.needs.prefix(3).joined(separator: ", "))."
-      lines.append(Line(who: "Crew", text: list))
+      add("Crew", list)
       await say("Shopping mode. \(list)")
       frameTask = Task { [weak self] in await self?.watchFrames() }
     } catch {
@@ -192,7 +252,7 @@ final class CrewModel: ObservableObject {
       try? await Task.sleep(for: .milliseconds(1500))
       guard let client, let trip, !busy, let jpeg = glasses.takeFrame() else { continue }
       if let said = try? await client.frame(trip: trip, jpeg: jpeg), let say = said.say {
-        lines.append(Line(who: "Crew", text: say))
+        add("Crew", say)
         await self.say(say)
       }
     }
@@ -204,7 +264,7 @@ final class CrewModel: ObservableObject {
     frameTask?.cancel()
     glasses.stopCamera()
     if let client, let trip, let say = try? await client.checkout(trip: trip) {
-      lines.append(Line(who: "Crew", text: say))
+      add("Crew", say)
       await self.say(say)
     }
     trip = nil

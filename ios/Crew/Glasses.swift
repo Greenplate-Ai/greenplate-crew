@@ -261,11 +261,12 @@ final class Glasses: ObservableObject {
     sp.start()
   }
 
-  /// Starts the recognizer again, a few tries a second apart, while the session is alive.
+  /// Starts the recognizer again, once a second for up to 30 s, while the session is alive.
+  /// It can refuse to start while the crew's voice is still playing, so 5 tries was not enough.
   func reviveSpeech() {
     guard reviving == nil else { return }
     reviving = Task { [weak self] in
-      for _ in 1...5 {
+      for _ in 1...30 {
         try? await Task.sleep(for: .seconds(1))
         guard let self, let sp = self.speech, self.session != nil else { break }
         if sp.state != .stopped { break }

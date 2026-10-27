@@ -15,9 +15,10 @@ struct CrewClient {
   struct Trip: Decodable { let tripId: String; let needs: [String] }
   struct Said: Decodable { let seen: String?; let say: String? }
 
-  func ask(_ request: String, mode: String) async throws -> String {
+  /// `history` is the chat so far (who, text), so the crew remembers the conversation.
+  func ask(_ request: String, mode: String, history: [[String: String]] = []) async throws -> String {
     struct R: Decodable { let runId: String }
-    let r: R = try await send("POST", "ask", ["request": request, "mode": mode])
+    let r: R = try await send("POST", "ask", ["request": request, "mode": mode, "history": history])
     return r.runId
   }
 

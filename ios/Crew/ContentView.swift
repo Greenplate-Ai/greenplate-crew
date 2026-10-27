@@ -146,6 +146,7 @@ struct CrewView: View {
   @EnvironmentObject var glasses: Glasses
   var openGlasses: () -> Void
   @State private var typed = ""
+  @State private var showChats = false
 
   var body: some View {
     NavigationStack {
@@ -211,6 +212,17 @@ struct CrewView: View {
       }
       .background(Theme.canvas)
       .navigationTitle("Kitchen Crew")
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button { showChats = true } label: { Image(systemName: "list.bullet") }
+            .accessibilityLabel("Chats")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button { crew.newChat() } label: { Image(systemName: "square.and.pencil") }
+            .accessibilityLabel("New chat")
+        }
+      }
+      .sheet(isPresented: $showChats) { ChatsList(close: { showChats = false }) }
     }
   }
 
@@ -219,6 +231,42 @@ struct CrewView: View {
     guard !t.isEmpty else { return }
     typed = ""
     Task { await crew.ask(t) }
+  }
+}
+
+/// Past chats, newest first. Tap to open, swipe to delete.
+struct ChatsList: View {
+  @EnvironmentObject var crew: CrewModel
+  var close: () -> Void
+
+  var body: some View {
+    NavigationStack {
+      List {
+        ForEach(crew.chats) { chat in
+          Button {
+            crew.openChat(chat.id)
+            close()
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(chat.title).foregroundStyle(Theme.ink).lineLimit(1)
+              Text(chat.updated, format: .relative(presentation: .named))
+                .font(.footnote).foregroundStyle(Theme.muted)
+            }
+          }
+          .listRowBackground(chat.id == crew.currentChat ? Theme.tint50 : Theme.surface)
+        }
+        .onDelete { idx in idx.map { crew.chats[$0].id }.forEach(crew.deleteChat) }
+      }
+      .navigationTitle("Chats")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) { Button("Done", action: close) }
+        ToolbarItem(placement: .topBarLeading) {
+          Button { crew.newChat(); close() } label: { Image(systemName: "square.and.pencil") }
+            .accessibilityLabel("New chat")
+        }
+      }
+    }
   }
 }
 
