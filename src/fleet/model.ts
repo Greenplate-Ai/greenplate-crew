@@ -20,7 +20,10 @@ export interface Model {
   turn(messages: Msg[], tools: ToolDef[]): Promise<Turn>
 }
 
-export function museSpark(opts: { apiKey?: string; model?: string; baseURL?: string } = {}): Model {
+/** How hard Muse Spark thinks before answering. 'minimal' measured 0.8 s vs 2.8 s default for a short spoken reply (2026-10-27). */
+export type Effort = 'minimal' | 'low' | 'medium' | 'high'
+
+export function museSpark(opts: { apiKey?: string; model?: string; baseURL?: string; effort?: Effort } = {}): Model {
   const apiKey = opts.apiKey ?? process.env.MODEL_API_KEY
   if (!apiKey) throw new Error('MODEL_API_KEY is not set')
   const client = new OpenAI({ baseURL: opts.baseURL ?? META_BASE_URL, apiKey })
@@ -32,6 +35,7 @@ export function museSpark(opts: { apiKey?: string; model?: string; baseURL?: str
       const res = await client.chat.completions.create({
         model,
         messages: messages.map(toWire),
+        ...(opts.effort ? { reasoning_effort: opts.effort as 'low' } : {}),
         ...(tools.length ? { tools: tools.map((t) => ({ type: 'function' as const, function: t })) } : {}),
       })
       const m = res.choices[0]?.message

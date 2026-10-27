@@ -32,6 +32,8 @@ interface RunState {
 export interface ServerDeps {
   /** Missing pieces leave the service up: /health and /speak still work, the rest answer 503 naming what's missing. */
   model?: Model
+  /** A quicker model for plain conversation (no kitchen tools); falls back to `model`. */
+  talker?: Model
   kitchen?: Kitchen
   eyes?: (jpegBase64: string) => Promise<Seen>
   missing?: string[]
@@ -74,11 +76,12 @@ export function crewServer(d: ServerDeps) {
       const request = String(body.request ?? '').slice(0, 500)
       const mode = (MODES.includes(body.mode as Mode) ? body.mode : 'general') as Mode
       if (!request) return send(res, 400, { error: 'request is required' })
+      const history = chatHistory(body.history)
       if (!lim.take('ask')) return send(res, 429, { error: 'the crew has hit its daily limit' })
       const id = randomUUID()
       const run: RunState = { status: 'running' }
       runs.set(id, run)
-      const work = !d.kitchen ? talkOnly(model, request) : askCrew(request, mode, {
+      const work = !d.kitchen ? talkOnly(d.talker ?? model, request, history) : askCrew(request, mode, {
         model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
@@ -152,10 +155,25 @@ export function crewServer(d: ServerDeps) {
 const TALK_ONLY = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses. Answer in one or two short, friendly spoken sentences, no lists or markdown. The person's GreenplateAi kitchen (pantry, meal plan, shopping list) is not connected yet: if they ask about it, say it will be once they connect GreenplateAi. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
 
 /** The crew with no kitchen connected: a plain spoken reply from the model, no tools. */
-async function talkOnly(model: Model, request: string): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string }> {
-  const first = await model.turn([{ role: 'system', content: TALK_ONLY }, { role: 'user', content: request }], [])
+type Said = { role: 'user' | 'assistant'; content: string }
+
+/** The last lines of this chat, sent by the app with each request, so the crew remembers the conversation. Capped. */
+export function chatHistory(raw: unknown): Said[] {
+  if (!Array.isArray(raw)) return []
+  return raw.slice(-10).flatMap((l) => {
+    const who = (l as { who?: unknown })?.who
+    const text = String((l as { text?: unknown })?.text ?? '').slice(0, 500)
+    if (!text || (who !== 'You' && who !== 'Crew')) return []
+    return [{ role: who === 'You' ? 'user' as const : 'assistant' as const, content: text }]
+  })
+}
+
+/** The crew with no kitchen connected: a plain spoken reply from the model, no tools. */
+async function talkOnly(model: Model, request: string, history: Said[] = []): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string }> {
+  const chat = [{ role: 'system' as const, content: TALK_ONLY }, ...history, { role: 'user' as const, content: request }]
+  const first = await model.turn(chat, [])
   if (!soundsLikeCoaching(first.text)) return { answer: first.text.trim() }
-  const again = await model.turn([{ role: 'system', content: TALK_ONLY }, { role: 'user', content: request }, { role: 'assistant', content: first.text }, { role: 'user', content: REWRITE }], [])
+  const again = await model.turn([...chat, { role: 'assistant', content: first.text }, { role: 'user', content: REWRITE }], [])
   return { answer: again.text.trim() }
 }
 

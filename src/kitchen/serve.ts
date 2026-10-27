@@ -24,11 +24,12 @@ const limits = limiter()
 
 const model = process.env.MODEL_API_KEY ? museSpark() : (missing.push('MODEL_API_KEY'), undefined)
 const eyes = process.env.MODEL_API_KEY ? museSparkEyes() : undefined
+const talker = process.env.MODEL_API_KEY ? museSpark({ effort: 'minimal' }) : undefined
 let kitchen: Awaited<ReturnType<typeof connectKitchen>> | undefined
 if (process.env.GREENPLATE_MCP_TOKEN) {
   try { kitchen = await connectKitchen() } catch (e) { missing.push(`GREENPLATE_MCP_TOKEN (rejected: ${(e as Error).message})`) }
 } else missing.push('GREENPLATE_MCP_TOKEN')
 const speak = process.env.ELEVENLABS_API_KEY ? cachedVoice(limitedVoice(elevenLabsVoice(), limits)) : (missing.push('ELEVENLABS_API_KEY'), undefined)
 
-crewServer({ model, kitchen, eyes, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
+crewServer({ model, talker, kitchen, eyes, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
   .listen(port, () => console.log(`crew service on :${port}; missing: ${missing.join(', ') || 'nothing'}`))

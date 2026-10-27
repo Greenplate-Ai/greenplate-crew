@@ -104,4 +104,18 @@ describe('crew service', () => {
     expect((await fetch(`${base}/shopping/start`, { method: 'POST', headers: auth, body: '{}' })).status).toBe(503)
     server.close()
   })
+
+  it('passes the chat so far to the model', async () => {
+    let seen: unknown[] = []
+    const model = { id: 'stub', price: { input: 0, output: 0 }, turn: async (m: unknown[]) => { seen = m; return { text: 'Pasta, like you said.', toolCalls: [], inputTokens: 0, outputTokens: 0 } } }
+    const server = crewServer({ appToken: TOKEN, canWrite: false, model })
+    await new Promise<void>((r) => server.listen(0, r))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const auth = { authorization: `Bearer ${TOKEN}` }
+    const history = [{ who: 'You', text: 'I want pasta tonight' }, { who: 'Crew', text: 'Pasta it is.' }, { who: 'Bogus', text: 'ignored' }]
+    const { runId } = await (await fetch(`${base}/ask`, { method: 'POST', headers: auth, body: JSON.stringify({ request: 'what did I want?', history }) })).json()
+    for (let i = 0; i < 20; i++) { const r = await (await fetch(`${base}/runs/${runId}`, { headers: auth })).json(); if (r.status !== 'running') break }
+    expect(seen.slice(1)).toEqual([{ role: 'user', content: 'I want pasta tonight' }, { role: 'assistant', content: 'Pasta it is.' }, { role: 'user', content: 'what did I want?' }])
+    server.close()
+  })
 })
