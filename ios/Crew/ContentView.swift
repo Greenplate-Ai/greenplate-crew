@@ -14,7 +14,12 @@ struct ContentView: View {
             Text(status)
             Spacer()
             switch glasses.link {
-            case .notRegistered, .failed: Button("Register") { Task { await glasses.register() } }
+            case .notRegistered: Button("Register") { Task { await glasses.register() } }
+            case .failed:
+              VStack(alignment: .trailing, spacing: 8) {
+                Button("Try again") { Task { await glasses.connect() } }.buttonStyle(.borderedProminent)
+                Button("Register") { Task { await glasses.register() } }.font(.footnote)
+              }
             case .registered: Button("Connect") { Task { await glasses.connect() } }
             case .connected: Button("Disconnect", role: .destructive) { glasses.disconnect() }
             default: ProgressView()

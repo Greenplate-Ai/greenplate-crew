@@ -128,7 +128,7 @@ final class CrewModel: ObservableObject {
       let t = try await client.startShopping(from: today, to: week)
       trip = t.tripId
       shopping = true
-      glasses.startCamera()
+      await glasses.startCamera()
       let list = t.needs.isEmpty ? "Nothing on the list this week." : "\(t.needs.count) things on the list. First up: \(t.needs.prefix(3).joined(separator: ", "))."
       lines.append(Line(who: "Crew", text: list))
       await say("Shopping mode. \(list)")

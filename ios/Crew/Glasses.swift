@@ -14,6 +14,7 @@ final class Glasses: ObservableObject {
   @Published private(set) var link: Link = .notRegistered
   @Published private(set) var heard: String = ""
   @Published private(set) var cameraOn = false
+  @Published private(set) var registered = false
 
   /// A finished sentence heard by the glasses' microphones.
   var onHeard: ((String) -> Void)?
@@ -36,7 +37,9 @@ final class Glasses: ObservableObject {
       for await state in Wearables.shared.registrationStateStream() {
         guard let self else { return }
         switch state {
-        case .registered: if self.session == nil { self.link = .registered }
+        case .registered:
+          self.registered = true
+          if self.session == nil { self.link = .registered }
         case .registering: self.link = .registering
         default: if self.session == nil { self.link = .notRegistered }
         }
@@ -57,12 +60,13 @@ final class Glasses: ObservableObject {
     guard session == nil else { return }
     link = .connecting
     do {
+      // Permission requests fail with "no device" unless the glasses are already known and connected,
+      // so wait for them first (up to 15 s).
+      guard await Self.waitForGlasses(seconds: 15) else { throw GlassesError.noGlasses }
       if try await Wearables.shared.checkPermissionStatus(.microphone) != .granted {
         _ = try await Wearables.shared.requestPermission(.microphone)
       }
-      if try await Wearables.shared.checkPermissionStatus(.camera) != .granted {
-        _ = try await Wearables.shared.requestPermission(.camera)
-      }
+      // The camera is only needed on a shopping trip; asked for in startCamera().
       let s = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector(wearables: Wearables.shared))
       session = s
       try s.start()
@@ -81,8 +85,47 @@ final class Glasses: ObservableObject {
       })
     } catch {
       dropSession()
-      link = .failed("Connect: \(error)")
+      link = .failed(Self.explain(error))
     }
+  }
+
+  /// True once the Meta AI app reports at least one pair of glasses.
+  private static func waitForGlasses(seconds: Double) async -> Bool {
+    await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        for await ids in Wearables.shared.devicesStream() where !ids.isEmpty { return true }
+        return false
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(seconds))
+        return false
+      }
+      let found = await group.next() ?? false
+      group.cancelAll()
+      return found
+    }
+  }
+
+  /// Plain words for what went wrong, instead of the raw error value.
+  static func explain(_ error: Error) -> String {
+    if let e = error as? GlassesError {
+      switch e {
+      case .noGlasses: return "Glasses not found. Turn them on, open the Meta AI app and check they show as connected, then tap Connect."
+      case .stopped: return "The glasses ended the session. Tap Connect to try again."
+      }
+    }
+    if let e = error as? PermissionError {
+      switch e {
+      case .noDevice: return "No glasses registered yet. Tap Register, then Connect."
+      case .noDeviceWithConnection: return "Glasses are off or not connected. Open the Meta AI app, connect them, then tap Connect."
+      case .connectionError: return "Lost the connection to the glasses. Tap Connect to try again."
+      case .metaAINotInstalled: return "The Meta AI app is not installed on this phone."
+      case .requestInProgress: return "A permission request is already open in the Meta AI app. Finish it there."
+      case .requestTimeout: return "The permission request timed out. Tap Connect and approve it in the Meta AI app."
+      default: return "Permission error on the glasses (\(e)). Tap Connect to try again."
+      }
+    }
+    return "Couldn't connect: \(error.localizedDescription)"
   }
 
   func disconnect() {
@@ -126,8 +169,11 @@ final class Glasses: ObservableObject {
 
   // MARK: camera, only during a shopping trip
 
-  func startCamera() {
+  func startCamera() async {
     guard let s = session, camera == nil else { return }
+    if (try? await Wearables.shared.checkPermissionStatus(.camera)) != .granted {
+      _ = try? await Wearables.shared.requestPermission(.camera)
+    }
     let config = StreamConfiguration(videoCodec: .raw, resolution: .medium, frameRate: 2)
     guard let cam = try? s.addCamera(config: config) else { return }
     camera = cam
@@ -175,7 +221,7 @@ final class Glasses: ObservableObject {
   }
 }
 
-enum GlassesError: Error { case stopped }
+enum GlassesError: Error { case stopped, noGlasses }
 
 private extension AnyListenerToken {
   func store(into list: inout [any AnyListenerToken]) { list.append(self) }
