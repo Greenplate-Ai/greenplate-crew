@@ -6,6 +6,14 @@ import { crewServer } from './server.js'
 import { connectKitchen } from './service.js'
 import { museSparkEyes } from './vision.js'
 import { elevenLabsVoice } from './voice.js'
+import { loadKeysFromVault } from './keyvault.js'
+
+// On the server, keys come from Azure Key Vault (AZURE_KEYVAULT=<vault name>) into memory only.
+if (process.env.AZURE_KEYVAULT) {
+  const loaded = await loadKeysFromVault(process.env.AZURE_KEYVAULT)
+  console.log(`keys from ${process.env.AZURE_KEYVAULT}: ${loaded.join(', ') || 'none yet'}`)
+  if (!process.env.CREW_APP_TOKEN) throw new Error(`Add crew-app-token to ${process.env.AZURE_KEYVAULT}`)
+}
 
 const appToken = process.env.CREW_APP_TOKEN
 if (!appToken || appToken.length < 24) throw new Error('Set CREW_APP_TOKEN to a long random string (the glasses app sends it).')

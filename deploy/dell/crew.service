@@ -1,24 +1,19 @@
-# The crew service on the home server. Keys come from TPM-encrypted credentials in
-# /etc/credstore.encrypted (written by set-key.sh); nothing is stored in plain text.
+# The crew service on the home server. Keys come from Azure Key Vault (kv-i2-dev-bpwlfu) through the
+# machine's Azure Arc identity, straight into memory; nothing is stored on disk.
 [Unit]
 Description=GreenplateAi crew service
-After=network-online.target
+After=network-online.target himdsd.service
 Wants=network-online.target
 
 [Service]
 User=crew
 Group=crew
+SupplementaryGroups=himds
 WorkingDirectory=/opt/greenplate-crew
-ExecStart=/opt/greenplate-crew/deploy/dell/start.sh
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/kitchen/serve.ts
 Restart=always
-RestartSec=3
-Environment=PORT=8787 NODE_ENV=production
-LoadCredentialEncrypted=CREW_APP_TOKEN
-LoadCredentialEncrypted=ELEVENLABS_API_KEY
-LoadCredentialEncrypted=ELEVENLABS_VOICE_ID
-LoadCredentialEncrypted=MODEL_API_KEY
-LoadCredentialEncrypted=GREENPLATE_MCP_TOKEN
-LoadCredentialEncrypted=CREW_CAN_WRITE
+RestartSec=5
+Environment=PORT=8787 NODE_ENV=production AZURE_KEYVAULT=kv-i2-dev-bpwlfu
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
