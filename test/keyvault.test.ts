@@ -6,6 +6,7 @@ afterEach(() => { delete process.env.ELEVENLABS_API_KEY; delete process.env.MODE
 describe('Key Vault keys', () => {
   it('maps env names to vault secret names', () => {
     expect(secretName('ELEVENLABS_API_KEY')).toBe('crew-elevenlabs-api-key')
+    expect(secretName('CREW_APP_TOKEN')).toBe('crew-app-token')
   })
 
   it('gets a token through the Arc challenge', async () => {

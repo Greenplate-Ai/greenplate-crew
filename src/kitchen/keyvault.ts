@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 
 export const CREW_KEYS = ['CREW_APP_TOKEN', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'MODEL_API_KEY', 'GREENPLATE_MCP_TOKEN', 'CREW_CAN_WRITE'] as const
-export const secretName = (env: string) => `crew-${env.toLowerCase().replace(/_/g, '-')}`
+export const secretName = (env: string) => { const k = env.toLowerCase().replace(/_/g, '-'); return k.startsWith('crew-') ? k : `crew-${k}` }
 
 const ARC_TOKEN_URL = 'http://localhost:40342/metadata/identity/oauth2/token?api-version=2020-06-01&resource=https%3A%2F%2Fvault.azure.net'
 const AZURE_TOKEN_URL = 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net'
