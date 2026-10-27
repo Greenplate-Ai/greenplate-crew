@@ -15,8 +15,9 @@ import { askCrew, type Mode } from './crew.js'
 import type { Kitchen } from './service.js'
 import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
+import { limiter, OverLimit } from './limits.js'
 import { spokenQuestion } from './speak.js'
-import type { Speak } from './voice.js'
+import { MAX_CHARS, type Speak } from './voice.js'
 import { noticeItem, remaining, type Seen, type ShoppingTrip } from './vision.js'
 
 interface RunState {
@@ -38,6 +39,8 @@ export interface ServerDeps {
   canWrite: boolean
   appToken: string
   today?: () => string
+  /** Spending caps; a fresh default limiter when not given. */
+  limits?: ReturnType<typeof limiter>
 }
 
 const MODES: Mode[] = ['shopping', 'capture', 'cooking', 'eating_out', 'pantry_check', 'general']
@@ -46,10 +49,12 @@ export function crewServer(d: ServerDeps) {
   const runs = new Map<string, RunState>()
   const trips = new Map<string, ShoppingTrip>()
   const today = d.today ?? (() => new Date().toISOString().slice(0, 10))
+  const lim = d.limits ?? limiter()
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!lim.request()) return send(res, 429, { error: 'too many requests, slow down' })
     if (req.method === 'GET' && req.url === '/health') {
-      return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), missing: d.missing ?? [] })
+      return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), missing: d.missing ?? [], usedToday: lim.today() })
     }
     if (req.headers.authorization !== `Bearer ${d.appToken}`) return send(res, 401, { error: 'unauthorized' })
     const url = new URL(req.url ?? '/', 'http://crew')
@@ -69,6 +74,7 @@ export function crewServer(d: ServerDeps) {
       const request = String(body.request ?? '').slice(0, 500)
       const mode = (MODES.includes(body.mode as Mode) ? body.mode : 'general') as Mode
       if (!request) return send(res, 400, { error: 'request is required' })
+      if (!lim.take('ask')) return send(res, 429, { error: 'the crew has hit its daily limit' })
       const id = randomUUID()
       const run: RunState = { status: 'running' }
       runs.set(id, run)
@@ -114,7 +120,7 @@ export function crewServer(d: ServerDeps) {
     if (req.method === 'POST' && url.pathname === '/speak') {
       if (!d.speak) return send(res, 404, { error: 'no voice configured' })
       const body = await json(req)
-      const text = String(body.text ?? '').trim()
+      const text = String(body.text ?? '').trim().slice(0, MAX_CHARS)
       if (!text) return send(res, 400, { error: 'text is required' })
       const audio = await d.speak(text)
       res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': audio.length })
@@ -130,6 +136,7 @@ export function crewServer(d: ServerDeps) {
         const jpeg = String(body.jpegBase64 ?? '')
         if (!jpeg) return send(res, 400, { error: 'jpegBase64 is required' })
         if (!d.eyes) return send(res, 503, { error: 'vision is not set up yet', missing: d.missing ?? [] })
+        if (!lim.take('frame')) return send(res, 429, { error: 'the crew has hit its daily limit' })
         const seen = await d.eyes(jpeg) // the frame is not kept after this call
         return send(res, 200, { seen: seen.item, say: noticeItem(trip, seen) })
       }
@@ -139,7 +146,7 @@ export function crewServer(d: ServerDeps) {
     return send(res, 404, { error: 'not found' })
   }
 
-  return createServer((req, res) => { route(req, res).catch((e: Error) => send(res, 500, { error: e.message })) })
+  return createServer((req, res) => { route(req, res).catch((e: Error) => send(res, e instanceof OverLimit ? 429 : 500, { error: e.message })) })
 }
 
 const TALK_ONLY = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses. Answer in one or two short, friendly spoken sentences, no lists or markdown. The person's GreenplateAi kitchen (pantry, meal plan, shopping list) is not connected yet: if they ask about it, say it will be once they connect GreenplateAi. Never tell anyone what to eat, judge food, or talk about health, weight or diet."

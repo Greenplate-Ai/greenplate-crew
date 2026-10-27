@@ -23,7 +23,7 @@ final class CrewModel: ObservableObject {
 
   let glasses = Glasses()
   private let speaker = Speaker()
-  var voiceName: String { speaker.voiceName }
+  var voiceName: String { "Crew voice (ElevenLabs)" }
   func testVoice() async { await say("Hi, this is your kitchen crew. Ready when you are.") }
   @Published private(set) var waitingForApproval = false
   private var pendingApproval: ((Bool) -> Void)? {
@@ -95,7 +95,7 @@ final class CrewModel: ObservableObject {
       try? await Task.sleep(for: .seconds(10))
       self?.awaitingRequest = false
     }
-    Task { await speaker.say("Yes?") }
+    Task { await say("Yes?") }
   }
 
   /// Press and hold: start or end a shopping trip.
@@ -197,10 +197,18 @@ final class CrewModel: ObservableObject {
     trip = nil
   }
 
-  /// The natural ElevenLabs voice from the crew service when it's reachable, the phone's voice otherwise.
+  /// Lines already spoken, kept for this session so a repeat ("Yes?", "Crew's here.") is instant and free.
+  private var voiceCache: [String: Data] = [:]
+
+  /// Only the natural ElevenLabs voice from the crew service. If it can't be reached, a short tone
+  /// plays and the words stay on screen: the phone's robotic voice is never used.
   private func say(_ text: String) async {
-    if let client, let audio = try? await client.speak(text), await speaker.play(audio) { return }
-    await speaker.say(text)
+    if let audio = voiceCache[text], await speaker.play(audio) { return }
+    if let client, let audio = try? await client.speak(text), await speaker.play(audio) {
+      if text.count <= 80 { voiceCache[text] = audio }
+      return
+    }
+    speaker.chime()
   }
 
   private static func day(_ offset: Int) -> String {

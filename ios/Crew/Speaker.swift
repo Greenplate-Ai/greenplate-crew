@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 
 /// Speaks the crew's answers. With the glasses connected as a Bluetooth headset, iOS routes
 /// playback to their open-ear speakers.
@@ -32,6 +33,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
       synth.speak(u)
     }
   }
+
+  /// A short tone in place of speech when the crew's voice can't be reached.
+  func chime() { AudioServicesPlaySystemSound(1057) }
 
   /// Plays audio made by the crew service (the ElevenLabs voice). Returns false if it can't play.
   func play(_ audio: Data) async -> Bool {

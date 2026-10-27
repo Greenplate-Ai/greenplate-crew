@@ -85,7 +85,7 @@ describe('crew service', () => {
     await new Promise<void>((r) => server.listen(0, r))
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     const h = await (await fetch(`${base}/health`)).json()
-    expect(h).toEqual({ ok: true, voice: false, talk: false, crew: false, missing: ['MODEL_API_KEY'] })
+    expect(h).toMatchObject({ ok: true, voice: false, talk: false, crew: false, missing: ['MODEL_API_KEY'] })
     const ask = await fetch(`${base}/ask`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` }, body: '{"request":"hi"}' })
     expect(ask.status).toBe(503)
     server.close()

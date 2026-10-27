@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elevenLabsVoice } from '../src/kitchen/voice.js'
+import { cachedVoice, elevenLabsVoice } from '../src/kitchen/voice.js'
 
 describe('ElevenLabs voice', () => {
   it('posts the text to the chosen voice and returns the audio bytes', async () => {
@@ -19,5 +19,16 @@ describe('ElevenLabs voice', () => {
   it('reports an ElevenLabs error instead of returning silence', async () => {
     const fakeFetch = (async () => new Response('quota', { status: 401 })) as unknown as typeof fetch
     await expect(elevenLabsVoice({ apiKey: 'k', fetchImpl: fakeFetch })('hi')).rejects.toThrow('ElevenLabs 401')
+  })
+
+  it('pays for a repeated line only once, and retries a failed one', async () => {
+    let calls = 0
+    let fail = true
+    const speak = cachedVoice(async (text) => { calls++; if (fail) { fail = false; throw new Error('down') } return Buffer.from(text) })
+    await expect(speak("Crew's here.")).rejects.toThrow('down')
+    expect((await speak("Crew's here.")).toString()).toBe("Crew's here.")
+    await speak("Crew's here.")
+    await speak(" Crew's here. ")
+    expect(calls).toBe(2)
   })
 })
