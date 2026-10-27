@@ -1,0 +1,29 @@
+# The crew service on the home server. Keys come from TPM-encrypted credentials in
+# /etc/credstore.encrypted (written by set-key.sh); nothing is stored in plain text.
+[Unit]
+Description=GreenplateAi crew service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=crew
+Group=crew
+WorkingDirectory=/opt/greenplate-crew
+ExecStart=/opt/greenplate-crew/deploy/dell/start.sh
+Restart=always
+RestartSec=3
+Environment=PORT=8787 NODE_ENV=production
+LoadCredentialEncrypted=CREW_APP_TOKEN
+LoadCredentialEncrypted=ELEVENLABS_API_KEY
+LoadCredentialEncrypted=ELEVENLABS_VOICE_ID
+LoadCredentialEncrypted=MODEL_API_KEY
+LoadCredentialEncrypted=GREENPLATE_MCP_TOKEN
+LoadCredentialEncrypted=CREW_CAN_WRITE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/greenplate-crew
+
+[Install]
+WantedBy=multi-user.target
