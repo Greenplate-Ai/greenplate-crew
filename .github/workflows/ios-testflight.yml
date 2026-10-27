@@ -51,7 +51,7 @@ jobs:
       - name: Check the app's settings survived
         working-directory: ios
         run: |
-          for k in MWDAT NSCameraUsageDescription NSMicrophoneUsageDescription NSBluetoothAlwaysUsageDescription CFBundleIconName; do
+          for k in MWDAT NSCameraUsageDescription NSMicrophoneUsageDescription NSBluetoothAlwaysUsageDescription CFBundleIconName UIUserInterfaceStyle; do
             grep -q "<key>$k</key>" Crew/Info.plist || { echo "::error::Info.plist lost $k"; exit 1; }
           done
           grep -q HotspotConfiguration Crew/Crew.entitlements || { echo "::error::entitlements lost Hotspot"; exit 1; }
