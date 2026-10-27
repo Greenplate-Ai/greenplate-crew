@@ -261,6 +261,13 @@ struct GlassesView: View {
             step(3, "Glasses on, connected, microphone allowed", done: glasses.link == .connected)
           }
 
+          if !glasses.deviceReport.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("What Meta AI reports").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+              ForEach(glasses.deviceReport, id: \.self) { Text($0).font(.footnote).foregroundStyle(Theme.ink) }
+            }
+          }
+
           VStack(spacing: 10) {
             switch glasses.link {
             case .connected:

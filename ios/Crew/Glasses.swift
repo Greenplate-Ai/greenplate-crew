@@ -15,6 +15,8 @@ final class Glasses: ObservableObject {
   @Published private(set) var heard: String = ""
   @Published private(set) var cameraOn = false
   @Published private(set) var registered = false
+  /// What the Meta AI app reports for each pair: "RB Meta 01LT: connected, compatible".
+  @Published private(set) var deviceReport: [String] = []
 
   /// A finished sentence heard by the glasses' microphones.
   var onHeard: ((String) -> Void)?
@@ -81,7 +83,8 @@ final class Glasses: ObservableObject {
         _ = try await Wearables.shared.requestPermission(.microphone)
       }
       // The camera is only needed on a shopping trip; asked for in startCamera().
-      let s = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector(wearables: Wearables.shared))
+      let device = try pickConnectedDevice()
+      let s = try Wearables.shared.createSession(deviceSelector: SpecificDeviceSelector(device: device))
       session = s
       try s.start()
       for await state in s.stateStream() {
@@ -101,6 +104,26 @@ final class Glasses: ObservableObject {
       dropSession()
       link = .failed(Self.explain(error))
     }
+  }
+
+  /// Refreshes deviceReport and returns the first pair that is connected and compatible.
+  private func pickConnectedDevice() throws -> DeviceIdentifier {
+    let ids = Wearables.shared.devices
+    var report: [String] = []
+    var pick: DeviceIdentifier?
+    var incompatible: String?
+    for id in ids {
+      guard let d = Wearables.shared.deviceForIdentifier(id) else { continue }
+      let compat = d.compatibility()
+      report.append("\(d.nameOrId()): \(d.linkState), \(compat)")
+      if d.linkState == .connected {
+        if compat == .compatible { if pick == nil { pick = id } } else { incompatible = "\(d.nameOrId()) needs an update (\(compat))" }
+      }
+    }
+    deviceReport = report
+    if let pick { return pick }
+    if let incompatible { throw GlassesError.incompatible(incompatible) }
+    throw GlassesError.noGlasses
   }
 
   /// True once the Meta AI app reports at least one pair of glasses.
@@ -126,6 +149,17 @@ final class Glasses: ObservableObject {
       switch e {
       case .noGlasses: return "Glasses not found. Turn them on, open the Meta AI app and check they show as connected, then tap Connect."
       case .stopped: return "The glasses ended the session. Tap Connect to try again."
+      case let .incompatible(why): return why + ". Update the glasses in the Meta AI app, then try again."
+      }
+    }
+    if let e = error as? DeviceSessionError {
+      switch e {
+      case .noEligibleDevice: return "No usable glasses: they look disconnected, off, or incompatible. Check they show connected in Meta AI."
+      case .datAppOnTheGlassesUpdateRequired: return "The glasses need an update for developer apps. Update them in the Meta AI app."
+      case .insufficientSDKVersion: return "This app's Meta toolkit is too old for the glasses' software. The app needs a new build."
+      case .sessionAlreadyExists: return "A session is already open. Tap Disconnect, then connect again."
+      case .batteryCritical: return "Glasses battery is critically low. Charge them, then connect."
+      default: return "The glasses refused the session (\(e.description)). Tap Try connecting."
       }
     }
     if let e = error as? PermissionError {
@@ -235,7 +269,7 @@ final class Glasses: ObservableObject {
   }
 }
 
-enum GlassesError: Error { case stopped, noGlasses }
+enum GlassesError: Error { case stopped, noGlasses, incompatible(String) }
 
 private extension AnyListenerToken {
   func store(into list: inout [any AnyListenerToken]) { list.append(self) }
