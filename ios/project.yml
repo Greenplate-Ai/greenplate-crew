@@ -3,7 +3,7 @@ name: GreenplateCrew
 options:
   bundleIdPrefix: ai.greenplate
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "17.2"
   xcodeVersion: "26.0"
 packages:
   MWDAT:
