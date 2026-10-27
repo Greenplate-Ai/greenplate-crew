@@ -56,6 +56,16 @@ jobs:
           done
           grep -q HotspotConfiguration Crew/Crew.entitlements || { echo "::error::entitlements lost Hotspot"; exit 1; }
 
+      - name: Build in the crew service address and app token
+        working-directory: ios
+        env:
+          URL: ${{ vars.CREW_SERVICE_URL }}
+          TOKEN: ${{ secrets.CREW_APP_TOKEN }}
+        run: |
+          # Written into the build's copy of Info.plist only; nothing is committed.
+          [ -n "$URL" ] && /usr/libexec/PlistBuddy -c "Add :CrewServiceURL string $URL" Crew/Info.plist || echo "no CREW_SERVICE_URL variable"
+          [ -n "$TOKEN" ] && /usr/libexec/PlistBuddy -c "Add :CrewAppToken string $TOKEN" Crew/Info.plist || echo "no CREW_APP_TOKEN secret"
+
       - name: Archive (unsigned)
         working-directory: ios
         run: |
