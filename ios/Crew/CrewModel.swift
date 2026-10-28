@@ -241,8 +241,8 @@ final class CrewModel: ObservableObject {
   // MARK: asking the crew
 
   func ask(_ request: String) async {
-    guard let client else { return await say(CrewError.notSetUp.localizedDescription) }
-    guard !busy else { return await say("Still on the last one.") }
+    guard let client else { await say(CrewError.notSetUp.localizedDescription); return }
+    guard !busy else { await say("Still on the last one."); return }
     busy = true
     defer { busy = false }
     let history = lines.suffix(10).map { ["who": $0.who, "text": $0.text] }
@@ -296,7 +296,7 @@ final class CrewModel: ObservableObject {
   // MARK: live shopping
 
   func startShopping() async {
-    guard let client else { return await say(CrewError.notSetUp.localizedDescription) }
+    guard let client else { await say(CrewError.notSetUp.localizedDescription); return }
     guard !shopping else { return }
     do {
       let today = Self.day(0), week = Self.day(6)
