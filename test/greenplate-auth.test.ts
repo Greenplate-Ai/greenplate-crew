@@ -13,6 +13,7 @@ describe('GreenplateAi sign-in', () => {
     expect(u.origin + u.pathname).toBe('https://clerk.greenplate.ai/oauth/authorize')
     expect(u.searchParams.get('scope')).toContain('offline_access')
     expect(u.searchParams.get('code_challenge_method')).toBe('S256')
+    expect(u.searchParams.get('resource')).toBe('https://mcp.greenplate.ai/mcp')
   })
 
   it('reuses a fresh token, refreshes near expiry and saves a rotated refresh token', async () => {

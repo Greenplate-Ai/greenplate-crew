@@ -7,6 +7,8 @@ export const CLERK = 'https://clerk.greenplate.ai'
 /** The "Kitchen Crew" OAuth app in GreenplateAi's Clerk (public client; the id is not a secret). */
 export const CLIENT_ID = process.env.GREENPLATE_CLIENT_ID ?? '6Sx8IOcK8Q0xskiB'
 export const SCOPES = 'openid email offline_access'
+/** The kitchen server the token is for; GreenplateAi refuses a token whose audience is not this. */
+export const RESOURCE = process.env.GREENPLATE_MCP_URL ?? 'https://mcp.greenplate.ai/mcp'
 
 const b64url = (b: Buffer) => b.toString('base64url')
 
@@ -18,7 +20,7 @@ export function pkce(): { verifier: string; challenge: string } {
 export function authorizeUrl(o: { redirect: string; challenge: string; state: string; clientId?: string }): string {
   const q = new URLSearchParams({
     response_type: 'code', client_id: o.clientId ?? CLIENT_ID, redirect_uri: o.redirect, scope: SCOPES,
-    state: o.state, code_challenge: o.challenge, code_challenge_method: 'S256',
+    state: o.state, code_challenge: o.challenge, code_challenge_method: 'S256', resource: RESOURCE,
   })
   return `${CLERK}/oauth/authorize?${q}`
 }
@@ -28,7 +30,7 @@ export interface Tokens { access: string; refresh?: string; expiresIn: number }
 async function tokenCall(body: Record<string, string>, f: typeof fetch): Promise<Tokens> {
   const r = await f(`${CLERK}/oauth/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: CLIENT_ID, ...body }),
+    body: new URLSearchParams({ client_id: CLIENT_ID, resource: RESOURCE, ...body }),
   })
   const j = (await r.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string }
   if (!r.ok || !j.access_token) throw new Error(`GreenplateAi sign-in refused (${r.status} ${j.error ?? ''} ${j.error_description ?? ''})`.trim())
