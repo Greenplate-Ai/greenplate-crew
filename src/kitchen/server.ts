@@ -5,6 +5,8 @@
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
 //   POST /shopping/:id/frame {jpegBase64}           -> {say?}
 //   POST /shopping/:id/checkout                     -> {say}
+//   POST /meal/photo {jpegBase64, date, slot}   -> {mealId?, items, say}   (nothing saved yet)
+//   POST /meal/:id/log {yes}                    -> {logged, say}
 //   POST /speak          {text}                     -> audio/mpeg (404 when no voice is configured)
 // Auth: every request needs "Authorization: Bearer <CREW_APP_TOKEN>".
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -18,7 +20,7 @@ import { buildShoppingList } from './shopping.js'
 import { limiter, OverLimit } from './limits.js'
 import { spokenQuestion } from './speak.js'
 import { MAX_CHARS, type Speak } from './voice.js'
-import { noticeItem, remaining, type Seen, type ShoppingTrip } from './vision.js'
+import { noticeItem, remaining, spokenList, type PlateItem, type Seen, type ShoppingTrip } from './vision.js'
 
 interface RunState {
   status: 'running' | 'waiting' | 'done' | 'failed'
@@ -36,6 +38,8 @@ export interface ServerDeps {
   talker?: Model
   kitchen?: Kitchen
   eyes?: (jpegBase64: string) => Promise<Seen>
+  /** Names the foods on the plate, for logging a meal from a photo. */
+  plate?: (jpegBase64: string) => Promise<PlateItem[]>
   missing?: string[]
   speak?: Speak
   canWrite: boolean
@@ -50,6 +54,7 @@ const MODES: Mode[] = ['shopping', 'capture', 'cooking', 'eating_out', 'pantry_c
 export function crewServer(d: ServerDeps) {
   const runs = new Map<string, RunState>()
   const trips = new Map<string, ShoppingTrip>()
+  const meals = new Map<string, { items: PlateItem[]; date: string; slot: string; at: number }>()
   const today = d.today ?? (() => new Date().toISOString().slice(0, 10))
   const lim = d.limits ?? limiter()
   const snapshot = kitchenSnapshot()
@@ -148,6 +153,38 @@ export function crewServer(d: ServerDeps) {
       return
     }
 
+    // Log a meal from a photo: name what's on the plate, ask, then log only on a yes.
+    if (parts[0] === 'meal' && req.method === 'POST') {
+      if (parts[1] === 'photo') {
+        if (!d.plate) return send(res, 503, { error: 'vision is not set up yet', missing: d.missing ?? [] })
+        if (!d.kitchen) return send(res, 503, { error: 'the kitchen is not connected yet', missing: d.missing ?? [] })
+        const body = await json(req, 4_000_000)
+        const jpeg = String(body.jpegBase64 ?? '')
+        if (!jpeg) return send(res, 400, { error: 'jpegBase64 is required' })
+        const slot = SLOTS.includes(String(body.slot)) ? String(body.slot) : 'snack'
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date)) ? String(body.date) : today()
+        if (!lim.take('frame')) return send(res, 429, { error: 'the crew has hit its daily limit' })
+        const items = await d.plate(jpeg) // the photo is not kept after this call
+        if (!items.length) return send(res, 200, { items, say: "I couldn't tell what's in front of you. Try again with the plate in view." })
+        for (const [k, m] of meals) if (Date.now() - m.at > 300_000) meals.delete(k)
+        const mealId = randomUUID()
+        meals.set(mealId, { items, date, slot, at: Date.now() })
+        return send(res, 200, { mealId, items, say: `I see ${spokenList(items.map((i) => i.name))}. Log that as ${slot}?` })
+      }
+      if (parts[1] && parts[2] === 'log') {
+        const meal = meals.get(parts[1])
+        if (!meal) return send(res, 404, { error: 'no such meal, or it expired' })
+        meals.delete(parts[1])
+        const body = await json(req)
+        if (body.yes !== true) return send(res, 200, { logged: false, say: "Okay, I didn't log it." })
+        if (!d.canWrite) return send(res, 200, { logged: false, say: "Logging is switched off for now, so I didn't save it." })
+        const r = await kitchen.call('kitchen_log_add', { date: meal.date, slot: meal.slot, items: meal.items })
+        if (r.limit) return send(res, 200, { logged: false, say: "Logging meals needs GreenplateAi Plus, so I didn't save it." })
+        if (!r.ok) return send(res, 200, { logged: false, say: "GreenplateAi didn't take it, so nothing was saved." })
+        return send(res, 200, { logged: true, say: `Logged as ${meal.slot}.` })
+      }
+    }
+
     if (parts[0] === 'shopping' && parts[1] && req.method === 'POST') {
       const trip = trips.get(parts[1])
       if (!trip) return send(res, 404, { error: 'no such trip' })
@@ -168,6 +205,8 @@ export function crewServer(d: ServerDeps) {
 
   return createServer((req, res) => { route(req, res).catch((e: Error) => send(res, e instanceof OverLimit ? 429 : 500, { error: e.message })) })
 }
+
+const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack']
 
 const TALK_ONLY = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses. Answer in one or two short, friendly spoken sentences, no lists or markdown. The person's GreenplateAi kitchen (pantry, meal plan, shopping list) is not connected yet: if they ask about it, say it will be once they connect GreenplateAi. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
 

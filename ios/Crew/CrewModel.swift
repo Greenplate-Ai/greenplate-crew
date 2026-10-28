@@ -195,7 +195,9 @@ final class CrewModel: ObservableObject {
       return
     }
     if let request = Self.afterWakeWord(t) {
-      if request.lowercased().hasPrefix("start shopping") || request.lowercased().hasPrefix("i'm at the store") {
+      if Self.wantsMealPhoto(request) {
+        Task { await logMealFromPhoto() }
+      } else if request.lowercased().hasPrefix("start shopping") || request.lowercased().hasPrefix("i'm at the store") {
         Task { await startShopping() }
       } else if request.lowercased().hasPrefix("checkout") || request.lowercased().hasPrefix("check out") || request.lowercased().hasPrefix("done shopping") {
         Task { await endShopping() }
@@ -224,6 +226,55 @@ final class CrewModel: ObservableObject {
     return nil
   }
 
+  /// "take a picture and log what I'm eating", "log my meal", "log this"...
+  static func wantsMealPhoto(_ request: String) -> Bool {
+    let r = request.lowercased()
+    return r.contains("log what i'm eating") || r.contains("log what i am eating") || r.contains("log my meal")
+      || r.contains("log this") || r.contains("log my food") || (r.contains("picture") && r.contains("log"))
+  }
+
+  /// Photo → what's on the plate → "log that as dinner?" → logs only on a yes. The camera is on
+  /// only for the moment it takes, and the photo isn't kept.
+  func logMealFromPhoto() async {
+    guard let client else { await say(CrewError.notSetUp.localizedDescription); return }
+    guard !busy else { await say("Still on the last one."); return }
+    busy = true
+    defer { busy = false }
+    add("You", "Log what I'm eating")
+    let wasOn = glasses.cameraOn
+    await glasses.startCamera()
+    var jpeg: Data?
+    for _ in 0..<20 where jpeg == nil { // up to 4 s for a frame
+      try? await Task.sleep(for: .milliseconds(200))
+      jpeg = glasses.takeFrame()
+    }
+    if !wasOn { glasses.stopCamera() }
+    guard let jpeg else { await addAndSay("I couldn't get a picture from the glasses."); return }
+    do {
+      let seen = try await client.mealPhoto(jpeg: jpeg, date: Self.day(0), slot: Self.mealSlot())
+      await addAndSay(seen.say)
+      guard let id = seen.mealId else { return }
+      let yes = await waitForYesNo()
+      let done = try await client.logMeal(id, yes: yes)
+      await addAndSay(done.say)
+    } catch {
+      add("Crew", error.localizedDescription)
+      await say("I couldn't reach the crew.")
+    }
+    glasses.reviveSpeech()
+  }
+
+  /// The meal by the phone's clock.
+  static func mealSlot(_ now: Date = Date()) -> String {
+    let h = Calendar.current.component(.hour, from: now)
+    switch h {
+    case 5..<11: return "breakfast"
+    case 11..<15: return "lunch"
+    case 17..<22: return "dinner"
+    default: return "snack"
+    }
+  }
+
   /// Press: the crew says "Yes?" and takes the next sentence as the request (push to talk).
   /// Works even if always-on listening has stopped, because it starts the recognizer again.
   private func button() {
@@ -241,6 +292,7 @@ final class CrewModel: ObservableObject {
   // MARK: asking the crew
 
   func ask(_ request: String) async {
+    if Self.wantsMealPhoto(request) { await logMealFromPhoto(); return } // typed, follow-up or spoken
     guard let client else { await say(CrewError.notSetUp.localizedDescription); return }
     guard !busy else { await say("Still on the last one."); return }
     busy = true

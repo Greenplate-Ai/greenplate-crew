@@ -4,7 +4,7 @@
 import { museSpark } from '../fleet/model.js'
 import { crewServer } from './server.js'
 import { connectKitchen } from './service.js'
-import { museSparkEyes } from './vision.js'
+import { museSparkEyes, museSparkPlate } from './vision.js'
 import { cachedVoice, elevenLabsVoice } from './voice.js'
 import { loadKeysFromVault, saveSecret } from './keyvault.js'
 import { greenplateSession } from './greenplate-auth.js'
@@ -26,6 +26,7 @@ const limits = limiter()
 // 'low' for the crew: each kitchen answer is several model turns, and default effort made it 15-30 s.
 const model = process.env.MODEL_API_KEY ? museSpark({ effort: 'low' }) : (missing.push('MODEL_API_KEY'), undefined)
 const eyes = process.env.MODEL_API_KEY ? museSparkEyes() : undefined
+const plate = process.env.MODEL_API_KEY ? museSparkPlate() : undefined
 const talker = process.env.MODEL_API_KEY ? museSpark({ effort: 'minimal' }) : undefined
 let kitchen: Awaited<ReturnType<typeof connectKitchen>> | undefined
 // A signed-in person's kitchen (npm run kitchen-login) wins over a fixed token.
@@ -38,5 +39,5 @@ if (process.env.GREENPLATE_REFRESH_TOKEN) {
 } else missing.push('GREENPLATE_REFRESH_TOKEN (run npm run kitchen-login)')
 const speak = process.env.ELEVENLABS_API_KEY ? cachedVoice(limitedVoice(elevenLabsVoice(), limits)) : (missing.push('ELEVENLABS_API_KEY'), undefined)
 
-crewServer({ model, talker, kitchen, eyes, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
+crewServer({ model, talker, kitchen, eyes, plate, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
   .listen(port, () => console.log(`crew service on :${port}; missing: ${missing.join(', ') || 'nothing'}`))

@@ -37,6 +37,18 @@ struct CrewClient {
     try await send("POST", "shopping/\(trip)/frame", ["jpegBase64": jpeg.base64EncodedString()])
   }
 
+  struct MealSeen: Decodable { let mealId: String?; let say: String }
+  struct MealLogged: Decodable { let logged: Bool; let say: String }
+
+  /// Names what's on the plate; nothing is saved until logMeal(yes: true).
+  func mealPhoto(jpeg: Data, date: String, slot: String) async throws -> MealSeen {
+    try await send("POST", "meal/photo", ["jpegBase64": jpeg.base64EncodedString(), "date": date, "slot": slot])
+  }
+
+  func logMeal(_ id: String, yes: Bool) async throws -> MealLogged {
+    try await send("POST", "meal/\(id)/log", ["yes": yes])
+  }
+
   func checkout(trip: String) async throws -> String? {
     let s: Said = try await send("POST", "shopping/\(trip)/checkout", [:])
     return s.say
