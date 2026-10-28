@@ -124,16 +124,31 @@ struct GlassesBar: View {
 
 struct Bubble: View {
   let line: CrewModel.Line
+  /// "12:43:20 AM · answered in 17s"
+  private var caption: String? {
+    guard let at = line.at else { return nil }
+    let time = at.formatted(date: .omitted, time: .standard)
+    guard let took = line.took else { return time }
+    return "\(time) · answered in \(Int(took.rounded()))s"
+  }
   var body: some View {
     let mine = line.who == "You"
     HStack {
       if mine { Spacer(minLength: 48) }
-      Text(line.text)
-        .font(.body)
-        .foregroundStyle(mine ? Theme.bubbleInk : Theme.ink)
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .background(mine ? Theme.tint : Theme.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(mine ? .clear : Theme.line, lineWidth: 1))
+      VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+        Text(line.text)
+          .font(.body)
+          .foregroundStyle(mine ? Theme.bubbleInk : Theme.ink)
+          .padding(.horizontal, 14).padding(.vertical, 11)
+          .background(mine ? Theme.tint : Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+          .overlay(RoundedRectangle(cornerRadius: 18).stroke(mine ? .clear : Theme.line, lineWidth: 1))
+        if let caption {
+          Text(caption).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 6)
+        }
+        if let note = line.note {
+          Text(note).font(.caption).foregroundStyle(.red).padding(.horizontal, 6)
+        }
+      }
       if !mine { Spacer(minLength: 48) }
     }
   }

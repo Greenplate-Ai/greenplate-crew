@@ -6,7 +6,17 @@ import Security
 /// come into view.
 @MainActor
 final class CrewModel: ObservableObject {
-  struct Line: Identifiable, Codable { var id = UUID(); let who: String; let text: String }
+  struct Line: Identifiable, Codable {
+    var id = UUID()
+    let who: String
+    let text: String
+    /// When it was said (missing on chats saved before build 125).
+    var at: Date? = nil
+    /// Crew lines: seconds from the question to the answer.
+    var took: Double? = nil
+    /// Crew lines: what happened to the voice when it didn't play ("voice didn't play: ...").
+    var note: String? = nil
+  }
   /// One conversation. Kept on the phone (last 30 chats), newest first.
   struct Chat: Identifiable, Codable {
     var id = UUID()
@@ -102,13 +112,28 @@ final class CrewModel: ObservableObject {
     saveChats()
   }
 
-  private func add(_ who: String, _ text: String) {
-    guard let i = chats.firstIndex(where: { $0.id == currentChat }) else { return }
-    chats[i].lines.append(Line(who: who, text: text))
+  @discardableResult
+  private func add(_ who: String, _ text: String, took: Double? = nil) -> UUID? {
+    guard let i = chats.firstIndex(where: { $0.id == currentChat }) else { return nil }
+    let line = Line(who: who, text: text, at: Date(), took: took)
+    chats[i].lines.append(line)
     if chats[i].lines.count > 200 { chats[i].lines.removeFirst(chats[i].lines.count - 200) }
     chats[i].updated = Date()
     if i != 0 { chats.insert(chats.remove(at: i), at: 0) }
     saveChats()
+    return line.id
+  }
+
+  /// Adds a crew line and speaks it; if the voice fails, the line says why.
+  private func addAndSay(_ text: String, took: Double? = nil) async {
+    let id = add("Crew", text, took: took)
+    if let problem = await say(text), let id { note(id, problem) }
+  }
+
+  private func note(_ id: UUID, _ text: String) {
+    for c in chats.indices {
+      if let l = chats[c].lines.firstIndex(where: { $0.id == id }) { chats[c].lines[l].note = text; saveChats(); return }
+    }
   }
 
   private static func loadChats() -> [Chat] {
@@ -169,17 +194,34 @@ final class CrewModel: ObservableObject {
       else if lower.hasPrefix("no") || lower.hasPrefix("don't") || lower.hasPrefix("stop") { pendingApproval = nil; decide(false) }
       return
     }
-    for wake in ["hey crew", "okay crew", "ok crew", "crew"] where lower.hasPrefix(wake) {
-      let request = String(t.dropFirst(wake.count)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+    if let request = Self.afterWakeWord(t) {
       if request.lowercased().hasPrefix("start shopping") || request.lowercased().hasPrefix("i'm at the store") {
         Task { await startShopping() }
       } else if request.lowercased().hasPrefix("checkout") || request.lowercased().hasPrefix("check out") || request.lowercased().hasPrefix("done shopping") {
         Task { await endShopping() }
       } else if !request.isEmpty {
         Task { await ask(request) }
+      } else if !busy {
+        // Just "crew" and a pause: answer like the button does and take the next sentence.
+        listenForRequest(seconds: 10)
+        Task { await say("Yes?") }
       }
       return
     }
+  }
+
+  /// The request after "crew" when "crew" (or how the recognizer mishears it) is one of the first
+  /// three words: "crew, what's for dinner", "hey crew ...", "okay so crew ...", "Cru what's ...".
+  static func afterWakeWord(_ text: String) -> String? {
+    let words = text.split(separator: " ")
+    let wake: Set<String> = ["crew", "cru", "crue", "krew", "kru", "crews"]
+    for (i, w) in words.prefix(3).enumerated() {
+      let bare = w.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'"))
+      if wake.contains(bare) {
+        return words.dropFirst(i + 1).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+      }
+    }
+    return nil
   }
 
   /// Press: the crew says "Yes?" and takes the next sentence as the request (push to talk).
@@ -205,6 +247,7 @@ final class CrewModel: ObservableObject {
     defer { busy = false }
     let history = lines.suffix(10).map { ["who": $0.who, "text": $0.text] }
     add("You", request)
+    let asked = Date()
     do {
       let id = try await client.ask(request, mode: shopping ? "shopping" : mode, history: history)
       while true {
@@ -212,15 +255,13 @@ final class CrewModel: ObservableObject {
         let run = try await client.run(id)
         steps = run.steps
         if run.status == "waiting", let q = run.spoken {
-          add("Crew", q)
-          await say(q)
+          await addAndSay(q, took: Date().timeIntervalSince(asked))
           let yes = await waitForYesNo()
           try await client.answer(id, yes: yes)
         } else if run.status == "done" || run.status == "failed" {
           let answer = run.answer ?? "Done."
-          add("Crew", answer)
           busy = false // free for the next question while the answer is spoken
-          await say(answer)
+          await addAndSay(answer, took: Date().timeIntervalSince(asked))
           glasses.reviveSpeech()
           // Follow-ups don't need "crew": the next sentence continues the conversation.
           listenForRequest(seconds: 12)
@@ -264,8 +305,7 @@ final class CrewModel: ObservableObject {
       shopping = true
       await glasses.startCamera()
       let list = t.needs.isEmpty ? "Nothing on the list this week." : "\(t.needs.count) things on the list. First up: \(t.needs.prefix(3).joined(separator: ", "))."
-      add("Crew", list)
-      await say("Shopping mode. \(list)")
+      await addAndSay(list)
       frameTask = Task { [weak self] in await self?.watchFrames() }
     } catch {
       await say("I couldn't build the list.")
@@ -300,13 +340,19 @@ final class CrewModel: ObservableObject {
 
   /// Only the natural ElevenLabs voice from the crew service. If it can't be reached, a short tone
   /// plays and the words stay on screen: the phone's robotic voice is never used.
-  private func say(_ text: String) async {
-    if let audio = voiceCache[text], await speaker.play(audio) { return }
-    if let client, let audio = try? await client.speak(text), await speaker.play(audio) {
-      if text.count <= 80 { voiceCache[text] = audio }
-      return
+  /// Returns nil when the voice played, otherwise why it didn't (shown under the line).
+  @discardableResult
+  private func say(_ text: String) async -> String? {
+    if let audio = voiceCache[text], await speaker.play(audio) { return nil }
+    guard let client else { speaker.chime(); return "voice didn't play: crew not set up" }
+    let audio: Data
+    do { audio = try await client.speak(text) } catch {
+      speaker.chime()
+      return "voice didn't play: \(error.localizedDescription)"
     }
-    speaker.chime()
+    guard await speaker.play(audio) else { speaker.chime(); return "voice didn't play: the phone couldn't play the audio (\(audio.count) bytes)" }
+    if text.count <= 80 { voiceCache[text] = audio }
+    return nil
   }
 
   private static func day(_ offset: Int) -> String {

@@ -129,7 +129,9 @@ export function crewServer(d: ServerDeps) {
       const body = await json(req)
       const text = String(body.text ?? '').trim().slice(0, MAX_CHARS)
       if (!text) return send(res, 400, { error: 'text is required' })
+      const t0 = Date.now()
       const audio = await d.speak(text)
+      console.log(`speak ${text.length} chars -> ${audio.length} bytes in ${Date.now() - t0} ms`)
       res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': audio.length })
       res.end(audio)
       return
