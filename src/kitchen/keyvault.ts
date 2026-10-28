@@ -4,7 +4,7 @@
 // ELEVENLABS_API_KEY -> crew-elevenlabs-api-key.
 import { readFileSync } from 'node:fs'
 
-export const CREW_KEYS = ['CREW_APP_TOKEN', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'MODEL_API_KEY', 'GREENPLATE_MCP_TOKEN', 'CREW_CAN_WRITE'] as const
+export const CREW_KEYS = ['CREW_APP_TOKEN', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'MODEL_API_KEY', 'GREENPLATE_MCP_TOKEN', 'GREENPLATE_REFRESH_TOKEN', 'CREW_CAN_WRITE'] as const
 export const secretName = (env: string) => { const k = env.toLowerCase().replace(/_/g, '-'); return k.startsWith('crew-') ? k : `crew-${k}` }
 
 const ARC_TOKEN_URL = 'http://localhost:40342/metadata/identity/oauth2/token?api-version=2020-06-01&resource=https%3A%2F%2Fvault.azure.net'
@@ -40,4 +40,13 @@ export async function loadKeysFromVault(vault: string, f: typeof fetch = fetch, 
     if (value) { process.env[env] = value; loaded.push(env) }
   }
   return loaded
+}
+
+/** Writes one secret (e.g. a rotated refresh token). Needs set permission on the vault. */
+export async function saveSecret(vault: string, env: string, value: string, f: typeof fetch = fetch, token?: string): Promise<void> {
+  const t = token ?? (await vaultToken(f))
+  const r = await f(`https://${vault}.vault.azure.net/secrets/${secretName(env)}?api-version=7.4`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ value }),
+  })
+  if (!r.ok) throw new Error(`Key Vault ${r.status} writing ${secretName(env)}`)
 }

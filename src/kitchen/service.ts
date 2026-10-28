@@ -11,12 +11,19 @@ export interface Kitchen extends Service { call(tool: string, args?: Record<stri
 export const LIMIT_WORDS = ['This needs GreenplateAi Plus', "You've reached today's limit"]
 const isLimit = (ok: boolean, text: string): boolean => !ok && LIMIT_WORDS.some((w) => text.includes(w))
 
-export async function connectKitchen(opts: { url?: string; token?: string } = {}): Promise<Kitchen & { close(): Promise<void> }> {
+/** token: a fixed bearer token, or a function that returns a fresh one (a signed-in person's session). */
+export async function connectKitchen(opts: { url?: string; token?: string | (() => Promise<string>) } = {}): Promise<Kitchen & { close(): Promise<void> }> {
   const url = opts.url ?? process.env.GREENPLATE_MCP_URL ?? 'https://mcp.greenplate.ai/mcp'
   const token = opts.token ?? process.env.GREENPLATE_MCP_TOKEN
   if (!token) throw new Error('GREENPLATE_MCP_TOKEN is not set')
+  const bearer = typeof token === 'string' ? async () => token : token
+  const authed: typeof fetch = async (input, init = {}) => {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${await bearer()}`)
+    return fetch(input, { ...init, headers })
+  }
   const client = new Client({ name: 'greenplate-crew', version: '0.1.0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { fetch: authed }))
   return {
     async call(tool, args = {}) {
       const r = await client.callTool({ name: tool, arguments: args })
