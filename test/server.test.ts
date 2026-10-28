@@ -118,4 +118,27 @@ describe('crew service', () => {
     expect(seen.slice(1)).toEqual([{ role: 'user', content: 'I want pasta tonight' }, { role: 'assistant', content: 'Pasta it is.' }, { role: 'user', content: 'what did I want?' }])
     server.close()
   })
+
+  it('answers simple questions in one quick call and hands real jobs to the crew', async () => {
+    const kitchen = fakeKitchen({ pantry: [{ name: 'eggs' }], plan: [] })
+    const quickSeen: string[] = []
+    const talker = { id: 'quick', price: { input: 0, output: 0 }, turn: async (m: { content: string }[]) => {
+      quickSeen.push(m[0]!.content)
+      const q = m[m.length - 1]!.content
+      return { text: q.includes('add') ? 'CREW' : 'You have eggs.', toolCalls: [], inputTokens: 0, outputTokens: 0 }
+    } }
+    const server = crewServer({ appToken: TOKEN, canWrite: false, kitchen, talker, model: scripted([say('Crew handled it.')]), today: () => '2026-10-26' })
+    await new Promise<void>((r) => server.listen(0, r))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const auth = { authorization: `Bearer ${TOKEN}` }
+    const ask = async (request: string) => {
+      const { runId } = await (await fetch(`${base}/ask`, { method: 'POST', headers: auth, body: JSON.stringify({ request }) })).json()
+      return until(async () => (await fetch(`${base}/runs/${runId}`, { headers: auth })).json(), (r) => r.status !== 'running')
+    }
+    expect((await ask("what's in my pantry?")).answer).toBe('You have eggs.')
+    expect(quickSeen[0]).toContain('eggs')
+    expect((await ask('add milk')).answer).toBe('Crew handled it.')
+    expect(kitchen.calls.filter((c) => c === 'kitchen_pantry_list')).toHaveLength(1) // snapshot reused
+    server.close()
+  })
 })

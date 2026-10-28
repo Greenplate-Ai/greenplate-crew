@@ -52,6 +52,7 @@ export function crewServer(d: ServerDeps) {
   const trips = new Map<string, ShoppingTrip>()
   const today = d.today ?? (() => new Date().toISOString().slice(0, 10))
   const lim = d.limits ?? limiter()
+  const snapshot = kitchenSnapshot()
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // The app checking on a run it already started (GET /runs/:id) isn't new work, so it isn't counted.
@@ -83,17 +84,25 @@ export function crewServer(d: ServerDeps) {
       const id = randomUUID()
       const run: RunState = { status: 'running' }
       runs.set(id, run)
-      const work = !d.kitchen ? talkOnly(d.talker ?? model, request, history) : askCrew(request, mode, {
+      const crew = () => askCrew(request, mode, {
         model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
       }, id)
+      // Fast lane: most questions are answered in one quick model call over a snapshot of the
+      // kitchen; only real jobs (changes, shopping lists, recipes) go to the full crew.
+      let lane = d.kitchen ? 'crew' : 'talk'
+      const work = !d.kitchen ? talkOnly(d.talker ?? model, request, history)
+        : d.talker && QUICK_MODES.includes(mode)
+          ? quickAnswer(d.talker, () => snapshot.get(kitchen, today()), request, history).then((r) => r ? (lane = 'quick', r) : crew())
+          : crew()
       const started = Date.now()
       work.then((r) => {
         // Start the voice now, so the app's /speak for this answer finds it ready (or in flight) in the cache.
         if (d.speak && r.answer) d.speak(r.answer).catch(() => {})
         Object.assign(run, { status: 'done', answer: r.answer, log: r.log, stoppedBecause: r.stoppedBecause, question: undefined, resolve: undefined })
-        console.log(`ask answered in ${Date.now() - started} ms (${d.kitchen ? 'crew' : 'talk'}, ${history.length} lines of history)`)
+        if (lane === 'crew') snapshot.clear() // the crew may have changed the kitchen
+        console.log(`ask answered in ${Date.now() - started} ms (${lane}, ${history.length} lines of history)`)
       }).catch((e: Error) => { Object.assign(run, { status: 'failed', answer: `Something went wrong: ${e.message}` }) })
       return send(res, 202, { runId: id })
     }
@@ -174,6 +183,38 @@ export function chatHistory(raw: unknown): Said[] {
     if (!text || (who !== 'You' && who !== 'Crew')) return []
     return [{ role: who === 'You' ? 'user' as const : 'assistant' as const, content: text }]
   })
+}
+
+const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking']
+
+const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer from it in one or two short, friendly spoken sentences, no lists or markdown; it's fine to say something isn't there. If the request needs changing anything (adding, removing, updating, logging, planning), building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
+
+/** Pantry and this week's plan, fetched together and kept for a minute so follow-ups are instant. */
+export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {
+  let cached: { at: number; day: string; text: Promise<string> } | undefined
+  return {
+    get(kitchen: Kitchen, day: string): Promise<string> {
+      if (cached && cached.day === day && now() - cached.at < ttlMs) return cached.text
+      const to = new Date(Date.parse(day) + 6 * 86_400_000).toISOString().slice(0, 10)
+      const text = Promise.all([kitchen.call('kitchen_pantry_list'), kitchen.call('kitchen_plan_list', { from: day, to })])
+        .then(([pantry, plan]) => `Today is ${day}.\nPantry: ${pantry.ok ? pantry.text : 'unavailable'}\nMeal plan ${day} to ${to}: ${plan.ok ? plan.text : 'unavailable'}`)
+      cached = { at: now(), day, text }
+      text.catch(() => { cached = undefined })
+      return text
+    },
+    clear() { cached = undefined },
+  }
+}
+
+/** One quick call over the kitchen snapshot; undefined means "this needs the full crew". */
+export async function quickAnswer(model: Model, kitchenText: () => Promise<string>, request: string, history: Said[] = []): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string } | undefined> {
+  const chat = [{ role: 'system' as const, content: `${QUICK}\n\n${(await kitchenText()).slice(0, 12_000)}` }, ...history, { role: 'user' as const, content: request }]
+  const first = await model.turn(chat, [])
+  const text = first.text.trim()
+  if (!text || text.toUpperCase().startsWith('CREW')) return undefined
+  if (!soundsLikeCoaching(text)) return { answer: text }
+  const again = await model.turn([...chat, { role: 'assistant', content: text }, { role: 'user', content: REWRITE }], [])
+  return { answer: again.text.trim() }
 }
 
 /** The crew with no kitchen connected: a plain spoken reply from the model, no tools. */

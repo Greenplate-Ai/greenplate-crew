@@ -74,8 +74,9 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
 
   /// Plays audio made by the crew service (the ElevenLabs voice). Returns false if it can't play.
   func play(_ audio: Data) async -> Bool {
-    try? AVAudioSession.sharedInstance().setActive(true)
     guard let p = try? AVAudioPlayer(data: audio) else { return false }
+    duckMusic(true)
+    defer { duckMusic(false) }
     player?.stop() // a newer line (the answer) replaces one still playing ("One sec...")
     finishPlaying()
     player = p
@@ -92,6 +93,23 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
       }
     }
     return true
+  }
+
+  /// Turns other apps' music down while the crew talks, and back up after. iOS only restores the
+  /// music's volume when the session deactivates, so it's switched off and straight back on (the
+  /// silent keep-alive loop restarts with it).
+  private func duckMusic(_ on: Bool) {
+    let audio = AVAudioSession.sharedInstance()
+    if on {
+      try? audio.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers, .duckOthers])
+      try? audio.setActive(true)
+    } else {
+      guard playDone == nil else { return } // a newer line is already playing
+      try? audio.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
+      try? audio.setActive(false, options: .notifyOthersOnDeactivation)
+      try? audio.setActive(true)
+      silence?.play()
+    }
   }
 
   /// Resumes whoever is waiting on playback, exactly once.
