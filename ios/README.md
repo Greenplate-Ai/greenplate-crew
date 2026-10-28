@@ -8,6 +8,7 @@ trip, the camera at 2 frames a second only during a trip, and the glasses' speak
 
 - **Ask:** say "Hey Crew, what am I missing for this week?" The answer is spoken back.
 - **Approve:** before anything changes in GreenplateAi, the crew asks out loud. Say yes or no.
+- **Kitchen mode:** say "Hey Crew, kitchen mode." Show each barcode as you pull food out (read on the phone, no model call); say "Hey Crew, I've got this" for food without one (one photo). "Hey Crew, done" hears the list.
 - **Shop:** press the capture button or say "Hey Crew, start shopping." Hold items up as you shop.
   The crew checks them off, says when you already have something at home, and reminds you what
   is left when you say "Hey Crew, check out."

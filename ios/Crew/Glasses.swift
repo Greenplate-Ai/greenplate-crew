@@ -4,6 +4,7 @@ import MWDATCore
 import MWDATInputs
 import MWDATSpeech
 import UIKit
+import Vision
 
 /// Everything that touches the glasses: registration, one device session, on-glasses speech,
 /// the capture button, the camera (only while shopping), and "Hey Meta, start Kitchen Crew".
@@ -317,6 +318,18 @@ final class Glasses: ObservableObject {
     guard let frame = latestFrame else { return nil }
     latestFrame = nil
     return frame.makeUIImage()?.jpegData(compressionQuality: 0.6)
+  }
+
+  /// A grocery barcode in the newest frame, read on the phone with Apple's Vision (no network,
+  /// no model). Leaves the frame in place so a photo can still be taken from it.
+  func readBarcode() async -> String? {
+    guard let image = latestFrame?.makeUIImage()?.cgImage else { return nil }
+    return await Task.detached(priority: .utility) {
+      let request = VNDetectBarcodesRequest()
+      request.symbologies = [.ean13, .ean8, .upce, .code128]
+      try? VNImageRequestHandler(cgImage: image).perform([request])
+      return (request.results ?? []).filter { $0.confidence > 0.8 }.compactMap(\.payloadStringValue).first
+    }.value
   }
 
   func stopCamera() {

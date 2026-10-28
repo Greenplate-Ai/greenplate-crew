@@ -49,6 +49,28 @@ struct CrewClient {
     try await send("POST", "meal/\(id)/log", ["yes": yes])
   }
 
+  struct KitchenItem: Decodable { let item: String?; let unknownBarcode: Bool?; let say: String? }
+  struct KitchenEnd: Decodable { let items: [String]; let say: String }
+
+  /// Kitchen mode: food coming out of the fridge or cupboard, named once each.
+  func startKitchen() async throws -> String {
+    struct R: Decodable { let sessionId: String }
+    let r: R = try await send("POST", "kitchen/start", [:])
+    return r.sessionId
+  }
+
+  /// A barcode (read on the phone, free) or, when there's none, one photo.
+  func kitchenItem(_ session: String, barcode: String? = nil, jpeg: Data? = nil) async throws -> KitchenItem {
+    var body: [String: Any] = [:]
+    if let barcode { body["barcode"] = barcode }
+    if let jpeg { body["jpegBase64"] = jpeg.base64EncodedString() }
+    return try await send("POST", "kitchen/\(session)/item", body)
+  }
+
+  func endKitchen(_ session: String) async throws -> KitchenEnd {
+    try await send("POST", "kitchen/\(session)/end", [:])
+  }
+
   func checkout(trip: String) async throws -> String? {
     let s: Said = try await send("POST", "shopping/\(trip)/checkout", [:])
     return s.say

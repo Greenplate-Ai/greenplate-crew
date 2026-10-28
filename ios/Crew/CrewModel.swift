@@ -54,6 +54,10 @@ final class CrewModel: ObservableObject {
   }
   private var trip: String?
   private var frameTask: Task<Void, Never>?
+  @Published private(set) var kitchenMode = false
+  @Published private(set) var pulledOut: [String] = []
+  private var kitchenSession: String?
+  private var kitchenTask: Task<Void, Never>?
 
   static let modes = ["general", "shopping", "capture", "cooking", "eating_out", "pantry_check"]
 
@@ -208,6 +212,10 @@ final class CrewModel: ObservableObject {
       return
     }
     if let request = Self.afterWakeWord(t) {
+      let r = request.lowercased()
+      if Self.wantsKitchenMode(r) { Task { await startKitchen() }; return }
+      if kitchenMode, Self.endsKitchenMode(r) { Task { await endKitchen() }; return }
+      if kitchenMode, Self.wantsKitchenPhoto(r) { Task { await kitchenPhoto() }; return }
       if Self.wantsMealPhoto(request) {
         Task { await logMealFromPhoto() }
       } else if request.lowercased().hasPrefix("start shopping") || request.lowercased().hasPrefix("i'm at the store") {
@@ -242,6 +250,17 @@ final class CrewModel: ObservableObject {
       if i + 1 < bare.count, greet.contains(bare[i]), crew.contains(bare[i + 1]) { return rest(i + 2) }
     }
     return nil
+  }
+
+  static func wantsKitchenMode(_ r: String) -> Bool {
+    r.hasPrefix("kitchen mode") || r.hasPrefix("start kitchen") || r.hasPrefix("i'm cooking") || r.hasPrefix("start cooking")
+      || r.contains("track what i pull out") || r.contains("track what i take out")
+  }
+  static func endsKitchenMode(_ r: String) -> Bool {
+    r.hasPrefix("done") || r.hasPrefix("stop") || r.hasPrefix("end kitchen") || r.hasPrefix("that's everything") || r.hasPrefix("that's it")
+  }
+  static func wantsKitchenPhoto(_ r: String) -> Bool {
+    r.contains("got this") || r.contains("what's this") || r.contains("what is this") || r.contains("pulled out") || r.contains("took out") || r.contains("add this")
   }
 
   /// "take a picture and log what I'm eating", "log my meal", "log this"...
@@ -367,6 +386,63 @@ final class CrewModel: ObservableObject {
   /// Phone-screen buttons answer approvals too.
   func approve(_ yes: Bool) {
     if let p = pendingApproval { pendingApproval = nil; p(yes) }
+  }
+
+  // MARK: kitchen mode: food coming out, named once each
+
+  func startKitchen() async {
+    guard let client else { await say(CrewError.notSetUp.localizedDescription); return }
+    guard !kitchenMode, !shopping else { return }
+    do {
+      kitchenSession = try await client.startKitchen()
+      kitchenMode = true
+      pulledOut = []
+      await glasses.startCamera()
+      await addAndSay("Kitchen mode. Show me the barcode as you pull things out, or say \"Hey Crew, I've got this\" for anything without one.")
+      kitchenTask = Task { [weak self] in await self?.watchBarcodes() }
+    } catch {
+      await say("I couldn't start kitchen mode.")
+    }
+  }
+
+  /// Barcodes are read on the phone every half second (free). An unknown barcode gets one photo.
+  private func watchBarcodes() async {
+    var tried = Set<String>()
+    while kitchenMode, !Task.isCancelled {
+      try? await Task.sleep(for: .milliseconds(500))
+      guard let client, let session = kitchenSession, !busy, let code = await glasses.readBarcode(), !tried.contains(code) else { continue }
+      tried.insert(code)
+      guard let r = try? await client.kitchenItem(session, barcode: code) else { tried.remove(code); continue }
+      if r.unknownBarcode == true { await kitchenPhoto(); continue }
+      await heardItem(r)
+    }
+  }
+
+  func kitchenPhoto() async {
+    guard let client, let session = kitchenSession else { return }
+    var jpeg: Data?
+    for _ in 0..<10 where jpeg == nil { // up to 2 s for a frame
+      jpeg = glasses.takeFrame()
+      if jpeg == nil { try? await Task.sleep(for: .milliseconds(200)) }
+    }
+    guard let jpeg else { await say("I couldn't get a picture from the glasses."); return }
+    if let r = try? await client.kitchenItem(session, jpeg: jpeg) { await heardItem(r) }
+  }
+
+  private func heardItem(_ r: CrewClient.KitchenItem) async {
+    if let item = r.item, r.say != nil { pulledOut.append(item) }
+    if let say = r.say { await addAndSay(say) }
+  }
+
+  func endKitchen() async {
+    guard kitchenMode else { return }
+    kitchenMode = false
+    kitchenTask?.cancel()
+    glasses.stopCamera()
+    if let client, let session = kitchenSession, let end = try? await client.endKitchen(session) {
+      await addAndSay(end.say)
+    }
+    kitchenSession = nil
   }
 
   // MARK: live shopping

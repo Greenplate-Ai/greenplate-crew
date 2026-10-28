@@ -172,6 +172,14 @@ struct CrewView: View {
           if !glasses.heard.isEmpty {
             Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
           }
+          if crew.kitchenMode {
+            HStack {
+              Text(crew.pulledOut.isEmpty ? "Kitchen mode: show a barcode" : "Out: \(crew.pulledOut.joined(separator: ", "))")
+                .font(.footnote).lineLimit(2)
+              Spacer()
+              Button("Done") { Task { await crew.endKitchen() } }.font(.footnote).buttonStyle(.bordered)
+            }
+          }
         }
         .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
         ScrollViewReader { scroller in

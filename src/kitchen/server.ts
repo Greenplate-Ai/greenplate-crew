@@ -5,6 +5,9 @@
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
 //   POST /shopping/:id/frame {jpegBase64}           -> {say?}
 //   POST /shopping/:id/checkout                     -> {say}
+//   POST /kitchen/start                              -> {sessionId}          (kitchen mode: food coming out)
+//   POST /kitchen/:id/item {barcode? | jpegBase64?}  -> {item?, say?}        (say is null when already counted)
+//   POST /kitchen/:id/end                            -> {items, say}
 //   POST /meal/photo {jpegBase64, date, slot}   -> {mealId?, items, say}   (nothing saved yet)
 //   POST /meal/:id/log {yes}                    -> {logged, say}
 //   POST /speak          {text}                     -> audio/mpeg (404 when no voice is configured)
@@ -20,6 +23,7 @@ import { buildShoppingList } from './shopping.js'
 import { limiter, OverLimit } from './limits.js'
 import { spokenQuestion } from './speak.js'
 import { MAX_CHARS, type Speak } from './voice.js'
+import { barcodeLookup, summary, takeOut, type Session } from './takeout.js'
 import { noticeItem, remaining, spokenList, type PlateItem, type Seen, type ShoppingTrip } from './vision.js'
 
 interface RunState {
@@ -49,6 +53,8 @@ export interface ServerDeps {
   today?: () => string
   /** Spending caps; a fresh default limiter when not given. */
   limits?: ReturnType<typeof limiter>
+  /** Barcode -> product name; Open Food Facts when not given. */
+  lookup?: (code: string) => Promise<string | null>
 }
 
 const MODES: Mode[] = ['shopping', 'capture', 'cooking', 'eating_out', 'pantry_check', 'general']
@@ -60,6 +66,8 @@ export function crewServer(d: ServerDeps) {
   const today = d.today ?? (() => new Date().toISOString().slice(0, 10))
   const lim = d.limits ?? limiter()
   const snapshot = kitchenSnapshot()
+  const sessions = new Map<string, Session>()
+  const lookup = d.lookup ?? barcodeLookup()
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // The app checking on a run it already started (GET /runs/:id) isn't new work, so it isn't counted.
@@ -74,7 +82,7 @@ export function crewServer(d: ServerDeps) {
 
     // Talking (/ask, /runs) needs only the model; with no kitchen yet the crew just talks, no kitchen tools.
     const needsModel = (req.method === 'POST' && url.pathname === '/ask') || parts[0] === 'runs'
-    const needsCrew = req.method === 'POST' && parts[0] === 'shopping'
+    const needsCrew = req.method === 'POST' && (parts[0] === 'shopping' || parts[0] === 'kitchen')
     if ((needsModel && !d.model) || (needsCrew && !(d.model && d.kitchen))) {
       return send(res, 503, { error: 'the crew is not set up yet', missing: d.missing ?? [] })
     }
@@ -142,6 +150,35 @@ export function crewServer(d: ServerDeps) {
       const id = randomUUID()
       trips.set(id, { list, pantry: names, checked: new Set(), announced: new Set() })
       return send(res, 200, { tripId: id, needs: list.needs.map((n) => n.name), unknownRecipes: list.unknownRecipes })
+    }
+
+    if (req.method === 'POST' && parts[0] === 'kitchen') {
+      if (parts[1] === 'start') {
+        const pantry = await kitchen.call('kitchen_pantry_list')
+        const names = ((pantry.data as { items?: { name: string }[] })?.items ?? []).map((p) => p.name)
+        for (const [k, s] of sessions) if (Date.now() - s.at > 3 * 3_600_000) sessions.delete(k)
+        const id = randomUUID()
+        sessions.set(id, { items: [], seen: new Set(), pantry: names, at: Date.now() })
+        return send(res, 200, { sessionId: id })
+      }
+      const s = sessions.get(parts[1] ?? '')
+      if (!s) return send(res, 404, { error: 'no such kitchen session' })
+      if (parts[2] === 'item') {
+        const body = await json(req, 4_000_000)
+        let item: string | null = null
+        if (body.barcode) item = await lookup(String(body.barcode))
+        else if (body.jpegBase64 && d.eyes) {
+          if (!lim.take('frame')) return send(res, 429, { error: 'the crew has hit its daily limit' })
+          const seen = await d.eyes(String(body.jpegBase64)) // the photo is not kept after this call
+          item = seen.item && seen.confidence >= 0.5 ? seen.item : null
+        }
+        if (!item) return send(res, 200, { item: null, unknownBarcode: !!body.barcode, say: body.barcode ? null : "I couldn't tell what that is. Hold it up a bit closer." })
+        return send(res, 200, { item, say: takeOut(s, item) })
+      }
+      if (parts[2] === 'end') {
+        sessions.delete(parts[1]!)
+        return send(res, 200, { items: s.items, say: summary(s) })
+      }
     }
 
     if (req.method === 'POST' && url.pathname === '/speak') {
