@@ -58,7 +58,13 @@ final class CrewModel: ObservableObject {
   static let modes = ["general", "shopping", "capture", "cooking", "eating_out", "pantry_check"]
 
   init() {
-    let saved = CrewModel.loadChats()
+    var saved = CrewModel.loadChats()
+    // A new build starts a new chat; the old ones stay in the chats list.
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    if UserDefaults.standard.string(forKey: "lastBuild") != build {
+      UserDefaults.standard.set(build, forKey: "lastBuild")
+      if let first = saved.first, !first.lines.isEmpty { saved.insert(Chat(), at: 0) }
+    }
     let start = saved.isEmpty ? [Chat()] : saved
     chats = start
     currentChat = start[0].id
