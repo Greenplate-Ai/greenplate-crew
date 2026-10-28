@@ -51,7 +51,7 @@ Touch targets at least 44 pt.
 - "2 of 5 in the cart" + progress bar.
 - List card: checked rows (green check circle, strikethrough, "seen 2 min ago"), open rows (empty circle, quantity),
   pantry rows on the warn tint with a house icon and "Already at home".
-- Footer hint: Say "crew, check out" at the register.
+- Footer hint: Say "Hey Crew, check out" at the register.
 
 **4. Connect** is shown until the glasses are registered and connected.
 - Forest hero with glasses line art and "Glasses found nearby".

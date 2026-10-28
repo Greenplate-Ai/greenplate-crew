@@ -6,11 +6,11 @@ trip, the camera at 2 frames a second only during a trip, and the glasses' speak
 
 ## How it is used
 
-- **Ask:** say "crew, what am I missing for this week?" The answer is spoken back.
+- **Ask:** say "Hey Crew, what am I missing for this week?" The answer is spoken back.
 - **Approve:** before anything changes in GreenplateAi, the crew asks out loud. Say yes or no.
-- **Shop:** press the capture button or say "crew, start shopping." Hold items up as you shop.
+- **Shop:** press the capture button or say "Hey Crew, start shopping." Hold items up as you shop.
   The crew checks them off, says when you already have something at home, and reminds you what
-  is left when you say "crew, check out."
+  is left when you say "Hey Crew, check out."
 
 ## One-time setup
 

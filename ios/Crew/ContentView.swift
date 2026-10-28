@@ -168,7 +168,7 @@ struct CrewView: View {
       VStack(spacing: 0) {
         // Pinned above the chat, so messages scroll beneath it instead of sliding it under the title.
         VStack(alignment: .leading, spacing: 8) {
-          GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (crew.awaitingRequest ? "Go ahead, I'm listening" : glasses.listening ? "Listening. Say \"crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
+          GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (crew.awaitingRequest ? "Go ahead, I'm listening" : glasses.listening ? "Listening. Say \"Hey Crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
           if !glasses.heard.isEmpty {
             Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
           }
@@ -310,7 +310,7 @@ struct ShoppingView: View {
         VStack(alignment: .leading, spacing: 16) {
           GlassesBar(subtitle: glasses.cameraOn ? "Watching what you pick up. Frames are not saved." : "The camera turns on only during a trip", action: openGlasses)
           if crew.shopping {
-            Text("Hold items up or put them in the cart. Say \"crew, check out\" at the register to hear what's left.")
+            Text("Hold items up or put them in the cart. Say \"Hey Crew, check out\" at the register to hear what's left.")
               .font(.subheadline).foregroundStyle(Theme.muted)
             ForEach(crew.lines.reversed()) { Bubble(line: $0) }
             Button(role: .destructive) { Task { await crew.endShopping() } } label: {

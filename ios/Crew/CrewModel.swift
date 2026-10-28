@@ -191,7 +191,14 @@ final class CrewModel: ObservableObject {
     if awaitingRequest, pendingApproval == nil, !busy, !t.isEmpty {
       awaitingRequest = false
       awaitTimeout?.cancel()
-      let request = lower.hasPrefix("crew") ? String(t.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?")) : t
+      // In the follow-up window no wake phrase is needed; drop one if it was said anyway.
+      let request = Self.afterWakeWord(t)
+        ?? (lower.hasPrefix("crew") ? String(t.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?")) : t)
+      if request.isEmpty {
+        listenForRequest(seconds: 10)
+        Task { await say("Yes?") }
+        return
+      }
       Task { await ask(request) }
       return
     }
@@ -218,16 +225,21 @@ final class CrewModel: ObservableObject {
     }
   }
 
-  /// The request after "crew" when "crew" (or how the recognizer mishears it) is one of the first
-  /// three words: "crew, what's for dinner", "hey crew ...", "okay so crew ...", "Cru what's ...".
+  /// The request after the two-word wake phrase - a greeting then "crew" ("hey crew", "hi crew",
+  /// "okay crew", and how the recognizer mishears them) - near the start of the sentence.
+  /// A bare "crew" in conversation ("the crew was great") doesn't wake it.
   static func afterWakeWord(_ text: String) -> String? {
     let words = text.split(separator: " ")
-    let wake: Set<String> = ["crew", "cru", "crue", "krew", "kru", "crews"]
-    for (i, w) in words.prefix(3).enumerated() {
-      let bare = w.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'"))
-      if wake.contains(bare) {
-        return words.dropFirst(i + 1).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
-      }
+    let bare = words.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'-")) }
+    let greet: Set<String> = ["hey", "hi", "hello", "okay", "ok", "yo", "hay", "hei", "high", "eh"]
+    let crew: Set<String> = ["crew", "cru", "crue", "krew", "kru", "crews", "true"]
+    let joined: Set<String> = ["heycrew", "hicrew", "heycru", "hicru", "okcrew"]
+    let rest = { (i: Int) in
+      words.dropFirst(i).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+    }
+    for i in 0..<min(bare.count, 4) {
+      if joined.contains(bare[i]) { return rest(i + 1) }
+      if i + 1 < bare.count, greet.contains(bare[i]), crew.contains(bare[i + 1]) { return rest(i + 2) }
     }
     return nil
   }
