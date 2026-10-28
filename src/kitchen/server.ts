@@ -29,6 +29,8 @@ interface RunState {
   resolve?: (yes: boolean) => void
   log?: RunLog
   stoppedBecause?: string
+  lane?: string // which path answered: quick (one call), crew (agents), talk (no kitchen)
+  ms?: number
 }
 
 export interface ServerDeps {
@@ -105,7 +107,7 @@ export function crewServer(d: ServerDeps) {
       work.then((r) => {
         // Start the voice now, so the app's /speak for this answer finds it ready (or in flight) in the cache.
         if (d.speak && r.answer) d.speak(r.answer).catch(() => {})
-        Object.assign(run, { status: 'done', answer: r.answer, log: r.log, stoppedBecause: r.stoppedBecause, question: undefined, resolve: undefined })
+        Object.assign(run, { status: 'done', answer: r.answer, log: r.log, stoppedBecause: r.stoppedBecause, question: undefined, resolve: undefined, lane, ms: Date.now() - started })
         if (lane === 'crew') snapshot.clear() // the crew may have changed the kitchen
         console.log(`ask answered in ${Date.now() - started} ms (${lane}, ${history.length} lines of history)`)
       }).catch((e: Error) => { Object.assign(run, { status: 'failed', answer: `Something went wrong: ${e.message}` }) })
@@ -116,7 +118,7 @@ export function crewServer(d: ServerDeps) {
       const run = runs.get(parts[1])
       if (!run) return send(res, 404, { error: 'no such run' })
       if (req.method === 'GET' && parts.length === 2) {
-        return send(res, 200, { status: run.status, answer: run.answer, question: run.question, spoken: run.question ? spokenQuestion(run.question) : undefined, stoppedBecause: run.stoppedBecause, steps: run.log?.lines() ?? [], usd: run.log?.usd ?? 0 })
+        return send(res, 200, { status: run.status, answer: run.answer, question: run.question, spoken: run.question ? spokenQuestion(run.question) : undefined, stoppedBecause: run.stoppedBecause, lane: run.lane, ms: run.ms, steps: run.log?.lines() ?? [], usd: run.log?.usd ?? 0 })
       }
       if (req.method === 'POST' && parts[2] === 'answer') {
         const body = await json(req)

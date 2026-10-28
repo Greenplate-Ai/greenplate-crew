@@ -13,7 +13,8 @@
     "serve": "tsx src/kitchen/serve.ts",
     "voice-sample": "tsx src/kitchen/voice-sample.ts",
     "kitchen-login": "tsx src/kitchen/login.ts",
-    "kitchen-renew": "tsx src/kitchen/renew.ts"
+    "kitchen-renew": "tsx src/kitchen/renew.ts",
+    "sim": "tsx src/kitchen/sim.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
