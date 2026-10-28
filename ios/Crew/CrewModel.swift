@@ -250,8 +250,14 @@ final class CrewModel: ObservableObject {
     let asked = Date()
     do {
       let id = try await client.ask(request, mode: shopping ? "shopping" : mode, history: history)
+      var saidOneSec = false
       while true {
-        try await Task.sleep(for: .milliseconds(250))
+        try await Task.sleep(for: .milliseconds(400))
+        // Kitchen answers take several seconds: say so instead of leaving silence.
+        if !saidOneSec, Date().timeIntervalSince(asked) > 2.5 {
+          saidOneSec = true
+          Task { await say("One sec, checking your kitchen.") }
+        }
         let run = try await client.run(id)
         steps = run.steps
         if run.status == "waiting", let q = run.spoken {

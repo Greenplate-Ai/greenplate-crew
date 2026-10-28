@@ -54,7 +54,9 @@ export function crewServer(d: ServerDeps) {
   const lim = d.limits ?? limiter()
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!lim.request()) return send(res, 429, { error: 'too many requests, slow down' })
+    // The app checking on a run it already started (GET /runs/:id) isn't new work, so it isn't counted.
+    const polling = req.method === 'GET' && (req.url ?? '').startsWith('/runs/')
+    if (!polling && !lim.request()) return send(res, 429, { error: 'too many requests, slow down' })
     if (req.method === 'GET' && req.url === '/health') {
       return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), missing: d.missing ?? [], usedToday: lim.today() })
     }

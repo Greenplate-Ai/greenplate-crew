@@ -23,7 +23,8 @@ const port = Number(process.env.PORT ?? 8787)
 const missing: string[] = []
 const limits = limiter()
 
-const model = process.env.MODEL_API_KEY ? museSpark() : (missing.push('MODEL_API_KEY'), undefined)
+// 'low' for the crew: each kitchen answer is several model turns, and default effort made it 15-30 s.
+const model = process.env.MODEL_API_KEY ? museSpark({ effort: 'low' }) : (missing.push('MODEL_API_KEY'), undefined)
 const eyes = process.env.MODEL_API_KEY ? museSparkEyes() : undefined
 const talker = process.env.MODEL_API_KEY ? museSpark({ effort: 'minimal' }) : undefined
 let kitchen: Awaited<ReturnType<typeof connectKitchen>> | undefined

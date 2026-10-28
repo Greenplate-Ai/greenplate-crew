@@ -32,6 +32,7 @@ export function museSpark(opts: { apiKey?: string; model?: string; baseURL?: str
     id: model,
     price: { input: 0, output: 0 },
     async turn(messages, tools) {
+      const started = Date.now()
       const res = await client.chat.completions.create({
         model,
         messages: messages.map(toWire),
@@ -39,6 +40,7 @@ export function museSpark(opts: { apiKey?: string; model?: string; baseURL?: str
         ...(tools.length ? { tools: tools.map((t) => ({ type: 'function' as const, function: t })) } : {}),
       })
       const m = res.choices[0]?.message
+      console.log(`model ${opts.effort ?? 'default'} turn in ${Date.now() - started} ms (${tools.length} tools)`)
       return {
         text: m?.content ?? '',
         toolCalls: (m?.tool_calls ?? []).flatMap((c) => (c.type === 'function' ? [{ id: c.id, name: c.function.name, args: parseArgs(c.function.arguments) }] : [])),

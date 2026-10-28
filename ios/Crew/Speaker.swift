@@ -16,8 +16,42 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     super.init()
     synth.delegate = self
     let audio = AVAudioSession.sharedInstance()
-    try? audio.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+    // Mixes with music (no ducking): the session stays active all the time for keepAlive().
+    try? audio.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
     try? audio.setActive(true) // ready at launch, so the first line doesn't wait for audio to start up
+    keepAlive()
+    // A call or Siri stops the silence; start it again afterwards.
+    NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
+      guard let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+      Task { @MainActor in
+        try? AVAudioSession.sharedInstance().setActive(true)
+        self?.silence?.play()
+      }
+    }
+  }
+
+  private var silence: AVAudioPlayer?
+
+  /// Plays silence on a loop so iOS keeps the app running when it's not on screen: otherwise it is
+  /// suspended a few seconds after you leave it, and "crew, ..." on the glasses goes unheard.
+  func keepAlive() {
+    guard silence == nil, let p = try? AVAudioPlayer(data: Self.silentWav()) else { return }
+    p.numberOfLoops = -1
+    p.volume = 0
+    p.play()
+    silence = p
+  }
+
+  /// One second of 8 kHz mono 16-bit silence as a WAV file.
+  private static func silentWav() -> Data {
+    let rate: UInt32 = 8000, samples = 8000
+    var d = Data()
+    func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+    func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+    d.append(contentsOf: Array("RIFF".utf8)); u32(UInt32(36 + samples * 2)); d.append(contentsOf: Array("WAVE".utf8))
+    d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16)
+    d.append(contentsOf: Array("data".utf8)); u32(UInt32(samples * 2)); d.append(Data(count: samples * 2))
+    return d
   }
 
   /// Speaks and returns when done, so the next listen does not hear the crew itself.
@@ -42,6 +76,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   func play(_ audio: Data) async -> Bool {
     try? AVAudioSession.sharedInstance().setActive(true)
     guard let p = try? AVAudioPlayer(data: audio) else { return false }
+    player?.stop() // a newer line (the answer) replaces one still playing ("One sec...")
     finishPlaying()
     player = p
     p.delegate = self
