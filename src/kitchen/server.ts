@@ -91,7 +91,9 @@ export function crewServer(d: ServerDeps) {
       const id = randomUUID()
       const run: RunState = { status: 'running' }
       runs.set(id, run)
-      const crew = () => askCrew(request, mode, {
+      // The crew gets the last few lines too, so "add them to my list" knows what "them" is.
+      const recent = history.slice(-6).map((h) => `${h.role === 'user' ? 'Person' : 'Crew'}: ${h.content}`).join('\n')
+      const crew = () => askCrew(recent ? `Conversation so far:\n${recent}\n\nNow the person says: ${request}` : request, mode, {
         model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
         confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
@@ -228,7 +230,7 @@ export function chatHistory(raw: unknown): Said[] {
 
 const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking']
 
-const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer from it in one or two short, friendly spoken sentences, no lists or markdown; it's fine to say something isn't there. If the request needs changing anything (adding, removing, updating, logging, planning), building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
+const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer in one or two short, friendly spoken sentences, no lists or markdown. Use the snapshot for what they have and what's planned; it's fine to say something isn't there. For general cooking know-how (times, temperatures, when it's done, techniques, swaps, what could be made from what they have) answer from your own knowledge like a friend in the kitchen; never refuse just because it isn't on the plan. Read 'it', 'that', 'them' from the conversation so far. If the request needs changing anything (adding, removing, updating, logging, planning), building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
 
 /** Pantry and this week's plan, fetched together and kept for a minute so follow-ups are instant. */
 export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {

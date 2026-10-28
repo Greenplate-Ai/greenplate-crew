@@ -4,6 +4,7 @@
 // against how people expect a spoken assistant to behave: quick, short, and remembers what was said.
 // Run it on the Dell (it reads the app token from Key Vault into memory, like the service does):
 //   ssh i2-ci-1 'cd ~/greenplate-crew && AZURE_KEYVAULT=kv-i2-dev-bpwlfu npm run sim'
+// --local runs this checkout's server on a spare port with a sample kitchen (no restart needed).
 // Each turn uses one of the day's asks (150/day cap). --voice also times /speak (costs TTS characters).
 import { loadKeysFromVault } from './keyvault.js'
 
@@ -49,9 +50,25 @@ const sentences = (s: string) => s.split(/[.!?]+\s/).filter((x) => x.trim()).len
 
 async function main() {
   if (process.env.AZURE_KEYVAULT) await loadKeysFromVault(process.env.AZURE_KEYVAULT)
-  const token = process.env.CREW_APP_TOKEN
+  let token = process.env.CREW_APP_TOKEN
+  let base = process.env.CREW_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}`
+  if (process.argv.includes('--local')) {
+    // This checkout's code on a spare port, against a sample kitchen: tries changes without restarting
+    // the live service (and without touching its GreenplateAi sign-in). Writes are refused.
+    const { crewServer } = await import('./server.js')
+    const { museSpark } = await import('../fleet/model.js')
+    const sample: Record<string, string> = {
+      kitchen_pantry_list: 'Natures Own Keto Burger Buns (cupboard, full)',
+      kitchen_plan_list: 'Nothing planned.',
+    }
+    const kitchen = { call: async (tool: string) => ({ ok: tool in sample, text: sample[tool] ?? 'not available in the simulation', data: {} }) }
+    token = 'sim-' + Math.random().toString(36).slice(2).padEnd(24, 'x')
+    const server = crewServer({ model: museSpark({ effort: 'low' }), talker: museSpark({ effort: 'minimal' }), kitchen, canWrite: false, appToken: token })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    process.on('exit', () => server.close())
+  }
   if (!token) throw new Error('No CREW_APP_TOKEN (run on the Dell with AZURE_KEYVAULT set)')
-  const base = process.env.CREW_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}`
   const voice = process.argv.includes('--voice')
   const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : undefined
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
@@ -85,7 +102,7 @@ async function main() {
       let speakMs: number | undefined
       if (voice && answer) { const s0 = Date.now(); await call('POST', '/speak', { text: answer }); speakMs = Date.now() - s0 }
       rows.push({ convo: c.name, say: t.say, ms, lane: run.lane ?? '?', words: words(answer), flags: speakMs ? [...flags, `voice ${speakMs} ms`] : flags, answer })
-      history.push({ who: 'me', text: t.say }, { who: 'crew', text: answer })
+      history.push({ who: 'You', text: t.say }, { who: 'Crew', text: answer }) // the app's labels
     }
   }
 
@@ -99,4 +116,4 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e.message); process.exit(1) })
+main().then(() => process.exit(0)).catch((e) => { console.error(e.message, e.cause?.code ?? '', e.cause?.message ?? ''); process.exit(1) })
