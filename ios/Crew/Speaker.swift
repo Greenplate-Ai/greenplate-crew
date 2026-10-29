@@ -94,7 +94,13 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
 
   private static let blipWav: Data = {
     let rate = 16_000.0, n = Int(rate * 0.07)
-    let pcm = (0..<n).map { i in Int16(sin(2 * .pi * 660 * Double(i) / rate) * min(1, Double(i) / 120) * (1 - Double(i) / Double(n)) * 8_000) }
+    var pcm: [Int16] = []
+    for i in 0..<n {
+      let x = Double(i)
+      let fade: Double = min(1, x / 120) * (1 - x / Double(n))
+      let wave: Double = sin(2 * Double.pi * 660 * x / rate)
+      pcm.append(Int16(wave * fade * 8_000))
+    }
     return wav(pcm, rate: UInt32(rate))
   }()
 
