@@ -363,8 +363,8 @@ final class CrewModel: ObservableObject {
           let ready = Date().timeIntervalSince(asked)
           await addAndSay(answer, took: ready)
           // From the end of your sentence to Crew finishing its answer out loud.
-          client?.event("answer_ready", ms: ready * 1000, detail: run.lane)
-          client?.event("answer_spoken", ms: Date().timeIntervalSince(asked) * 1000)
+          client.event("answer_ready", ms: ready * 1000, detail: run.lane)
+          client.event("answer_spoken", ms: Date().timeIntervalSince(asked) * 1000)
           glasses.reviveSpeech()
           // Follow-ups don't need "crew": the next sentence continues the conversation.
           listenForRequest(seconds: 12)
