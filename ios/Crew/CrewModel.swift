@@ -198,9 +198,12 @@ final class CrewModel: ObservableObject {
   }
 
   private var lastGreeting: Date?
+  private var finalsHeard = 0
 
   private func heard(_ text: String) {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    finalsHeard += 1
+    if finalsHeard % 10 == 1 { client?.event("finals_heard", detail: "\(finalsHeard)") } // proof the recognizer is delivering
     let lower = t.lowercased()
     if awaitingRequest, pendingApproval == nil, !busy, !t.isEmpty {
       awaitingRequest = false
@@ -227,6 +230,10 @@ final class CrewModel: ObservableObject {
     lastGreeting = nil
     let words = lower.split(separator: " ").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'-")) }
     if words.count == 1, ["hey", "hi", "hello", "okay", "ok", "yo"].contains(words[0]) { lastGreeting = Date(); return }
+    // Short lines starting with a greeting are wake attempts: log what was heard so misses can be fixed.
+    if words.count <= 6, let w = words.first, ["hey", "hi", "hello", "okay", "ok", "yo", "hay", "a", "eh"].contains(w) {
+      client?.event("wake_heard", detail: String(lower.prefix(60)))
+    }
     guard let request = Self.afterWakeWord(joinedText) else {
       // Heard something crew-like that didn't wake it: logged (word count only) so misses show up.
       if words.contains(where: { Self.crewWords.contains($0) && $0 != "true" }) {
