@@ -10,6 +10,7 @@
 //   POST /kitchen/:id/end                            -> {items, say}
 //   POST /meal/photo {jpegBase64, date, slot}   -> {mealId?, items, say}   (nothing saved yet)
 //   POST /meal/:id/log {yes}                    -> {logged, say}
+//   POST /events {kind, ms?, detail?}               -> {ok}   (the app's own timings, for npm run report)
 //   POST /speak          {text}                     -> audio/mpeg (404 when no voice is configured)
 // Auth: every request needs "Authorization: Bearer <CREW_APP_TOKEN>".
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -179,6 +180,16 @@ export function crewServer(d: ServerDeps) {
         sessions.delete(parts[1]!)
         return send(res, 200, { items: s.items, say: summary(s) })
       }
+    }
+
+    if (req.method === 'POST' && url.pathname === '/events') {
+      const body = await json(req)
+      const kind = String(body.kind ?? '').replace(/[^a-z_]/g, '').slice(0, 32)
+      if (!kind) return send(res, 400, { error: 'kind is required' })
+      const ms = Number.isFinite(Number(body.ms)) ? ` ${Math.round(Number(body.ms))} ms` : ''
+      const detail = String(body.detail ?? '').replace(/\s+/g, ' ').slice(0, 120)
+      console.log(`app ${kind}${ms}${detail ? ` (${detail})` : ''}`)
+      return send(res, 200, { ok: true })
     }
 
     if (req.method === 'POST' && url.pathname === '/speak') {

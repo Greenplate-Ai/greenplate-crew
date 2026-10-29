@@ -27,6 +27,8 @@ final class Glasses: ObservableObject {
   var onHearing: (() -> Void)?
   /// A short press of the capture button.
   var onButton: (() -> Void)?
+  /// Session hiccups (stopped, reconnected), passed on to the service's performance log.
+  var onEvent: ((String) -> Void)?
   /// Press and hold of the capture button.
   var onLongPress: (() -> Void)?
   /// "Hey Meta, start Kitchen Crew".
@@ -130,6 +132,7 @@ final class Glasses: ObservableObject {
             // Glasses folded, taken off, or the session cut while off-screen: Meta needs a new
             // session each time, so start one as soon as they're back - no need to open the app.
             self.dropSession()
+            self.onEvent?(UIApplication.shared.applicationState == .active ? "session_stopped" : "session_stopped_offscreen")
             self.reconnectWhenBack()
             return
           case .paused:
@@ -230,7 +233,7 @@ final class Glasses: ObservableObject {
       while !Task.isCancelled {
         guard let self, self.session == nil, !self.userDisconnected else { break }
         await self.connect()
-        if self.session != nil { break }
+        if self.session != nil { self.onEvent?("reconnected"); break }
         try? await Task.sleep(for: .seconds(10))
       }
       self?.reconnecting = nil

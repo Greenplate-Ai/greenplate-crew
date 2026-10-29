@@ -123,6 +123,15 @@ jobs:
             2>&1 | tee export.log | grep -E "error:|Upload|EXPORT (SUCCEEDED|FAILED)" || true
           grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" export.log
 
+      - name: Wait for Apple processing (ready to install in TestFlight)
+        working-directory: ios
+        env:
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          pip3 install --quiet --break-system-packages pyjwt cryptography 2>/dev/null || pip3 install --quiet pyjwt cryptography
+          KEY_PATH="$RUNNER_TEMP/asc/key.p8" python3 ci/wait_processing.py ai.greenplate.crew $((100 + ${{ github.run_number }}))
+
       - name: Remove the key
         if: always()
         run: rm -rf "$RUNNER_TEMP/asc"

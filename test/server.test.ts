@@ -142,3 +142,15 @@ describe('crew service', () => {
     server.close()
   })
 })
+
+describe('performance report', async () => {
+  const { report } = await import('../src/kitchen/report.js')
+  it('summarises answer, voice and app timings from the log', () => {
+    const r = report(['ask answered in 1600 ms (quick, 2 lines of history)', 'ask answered in 9000 ms (crew, 0 lines of history)',
+      'speak 40 chars -> 30000 bytes in 400 ms', 'app heard_to_spoken 2500 ms', 'app reconnected', 'app voice_failed (timeout)'])
+    expect(r).toContain('| answer (quick) | 1 | 1.6 s |')
+    expect(r).toContain('| app heard_to_spoken | 1 | 2.5 s |')
+    expect(r).toContain('| app reconnected | 1 |')
+    expect(r).toContain('| app voice_failed | 1 |')
+  })
+})

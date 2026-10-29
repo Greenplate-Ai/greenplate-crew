@@ -75,6 +75,7 @@ final class CrewModel: ObservableObject {
     glasses.onHeard = { [weak self] text in self?.heard(text) }
     glasses.onHearing = { [weak self] in self?.hearing() }
     glasses.onButton = { [weak self] in self?.button() }
+    glasses.onEvent = { [weak self] kind in self?.client?.event(kind) }
     glasses.onLongPress = { [weak self] in self?.longPress() }
     glasses.onLaunched = { [weak self] in Task { await self?.glasses.connect(); await self?.say("Crew's here.") } }
   }
@@ -137,7 +138,10 @@ final class CrewModel: ObservableObject {
   /// Adds a crew line and speaks it; if the voice fails, the line says why.
   private func addAndSay(_ text: String, took: Double? = nil) async {
     let id = add("Crew", text, took: took)
-    if let problem = await say(text), let id { note(id, problem) }
+    if let problem = await say(text) {
+      if let id { note(id, problem) }
+      client?.event("voice_failed", detail: problem)
+    }
   }
 
   private func note(_ id: UUID, _ text: String) {
@@ -356,7 +360,11 @@ final class CrewModel: ObservableObject {
         } else if run.status == "done" || run.status == "failed" {
           let answer = run.answer ?? "Done."
           busy = false // free for the next question while the answer is spoken
-          await addAndSay(answer, took: Date().timeIntervalSince(asked))
+          let ready = Date().timeIntervalSince(asked)
+          await addAndSay(answer, took: ready)
+          // From the end of your sentence to Crew finishing its answer out loud.
+          client?.event("answer_ready", ms: ready * 1000, detail: run.lane)
+          client?.event("answer_spoken", ms: Date().timeIntervalSince(asked) * 1000)
           glasses.reviveSpeech()
           // Follow-ups don't need "crew": the next sentence continues the conversation.
           listenForRequest(seconds: 12)

@@ -11,6 +11,7 @@ struct CrewClient {
     let spoken: String?
     let steps: [String]
     let usd: Double?
+    let lane: String?
   }
   struct Trip: Decodable { let tripId: String; let needs: [String] }
   struct Said: Decodable { let seen: String?; let say: String? }
@@ -65,6 +66,14 @@ struct CrewClient {
     if let barcode { body["barcode"] = barcode }
     if let jpeg { body["jpegBase64"] = jpeg.base64EncodedString() }
     return try await send("POST", "kitchen/\(session)/item", body)
+  }
+
+  /// The app's own timings and hiccups, logged by the service for npm run report. Never blocks.
+  func event(_ kind: String, ms: Double? = nil, detail: String? = nil) {
+    var body: [String: Any] = ["kind": kind]
+    if let ms { body["ms"] = ms }
+    if let detail { body["detail"] = detail }
+    Task { struct Ok: Decodable { let ok: Bool }; let _: Ok? = try? await send("POST", "events", body) }
   }
 
   func endKitchen(_ session: String) async throws -> KitchenEnd {
