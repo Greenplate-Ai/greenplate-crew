@@ -124,6 +124,7 @@ struct GlassesBar: View {
 
 struct Bubble: View {
   let line: CrewModel.Line
+  @AppStorage("showDetails") private var showDetails = false
   /// "12:43:20 AM · answered in 17s"
   private var caption: String? {
     guard let at = line.at else { return nil }
@@ -142,10 +143,10 @@ struct Bubble: View {
           .padding(.horizontal, 14).padding(.vertical, 11)
           .background(mine ? Theme.tint : Theme.surface, in: RoundedRectangle(cornerRadius: 18))
           .overlay(RoundedRectangle(cornerRadius: 18).stroke(mine ? .clear : Theme.line, lineWidth: 1))
-        if let caption {
+        if showDetails, let caption {
           Text(caption).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 6)
         }
-        if let note = line.note {
+        if showDetails, let note = line.note {
           Text(note).font(.caption).foregroundStyle(.red).padding(.horizontal, 6)
         }
       }
@@ -162,6 +163,7 @@ struct CrewView: View {
   var openGlasses: () -> Void
   @State private var typed = ""
   @State private var showChats = false
+  @AppStorage("showDetails") private var showDetails = false
 
   var body: some View {
     NavigationStack {
@@ -169,7 +171,7 @@ struct CrewView: View {
         // Pinned above the chat, so messages scroll beneath it instead of sliding it under the title.
         VStack(alignment: .leading, spacing: 8) {
           GlassesBar(subtitle: glasses.link != .connected ? "Tap to set up your glasses" : (crew.awaitingRequest ? "Go ahead, I'm listening" : glasses.listening ? "Listening. Say \"Hey Crew, ...\"" : "Not listening right now. Restarting..."), action: openGlasses)
-          if !glasses.heard.isEmpty {
+          if showDetails, !glasses.heard.isEmpty {
             Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
           }
           if crew.kitchenMode {
@@ -208,7 +210,7 @@ struct CrewView: View {
               .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
               .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.green, lineWidth: 1.5))
             }
-            if !crew.steps.isEmpty {
+            if showDetails, !crew.steps.isEmpty {
               VStack(alignment: .leading, spacing: 6) {
                 Text("What the crew did").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
                 ForEach(Array(crew.steps.enumerated()), id: \.offset) { _, s in
@@ -474,6 +476,7 @@ enum BuildInfo {
 
 struct DeveloperView: View {
   @EnvironmentObject var crew: CrewModel
+  @AppStorage("showDetails") private var showDetails = false
   @State private var health = ""
 
   var body: some View {
@@ -484,6 +487,9 @@ struct DeveloperView: View {
         row("Commit", BuildInfo.commit)
         row("Built", BuildInfo.date)
       } header: { Text("This build") }
+      Section {
+        Toggle("Show details in the chat", isOn: $showDetails)
+      } footer: { Text("Times, what was heard, what the crew did, and voice errors. Off = a plain conversation.") }
       Section {
         row("Address", crew.serviceAddress.isEmpty ? "not set" : crew.serviceAddress)
         Button("Check connection") { Task { health = await crew.checkService() } }

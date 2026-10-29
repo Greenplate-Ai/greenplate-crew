@@ -101,6 +101,7 @@ final class Glasses: ObservableObject {
   /// Opens a session on the glasses and starts listening and watching the button.
   func connect() async {
     guard session == nil else { return }
+    userDisconnected = false
     link = .connecting
     do {
       // Permission requests fail with "no device" unless the glasses are already known and connected,
@@ -126,7 +127,10 @@ final class Glasses: ObservableObject {
           guard let self else { return }
           switch state {
           case .stopped:
+            // Glasses folded, taken off, or the session cut while off-screen: Meta needs a new
+            // session each time, so start one as soon as they're back - no need to open the app.
             self.dropSession()
+            self.reconnectWhenBack()
             return
           case .paused:
             self.listening = false
@@ -141,6 +145,7 @@ final class Glasses: ObservableObject {
     } catch {
       dropSession()
       link = .failed(Self.explain(error))
+      reconnectWhenBack() // glasses off or out of range: keep trying quietly
     }
   }
 
@@ -214,7 +219,27 @@ final class Glasses: ObservableObject {
     return "Couldn't connect: \(error.localizedDescription)"
   }
 
+  private var reconnecting: Task<Void, Never>?
+  private var userDisconnected = false
+
+  /// Tries a new session every 10 s until the glasses are back (connect() itself waits up to 15 s
+  /// for them). Runs off-screen too, because the silent audio loop keeps the app alive.
+  func reconnectWhenBack() {
+    guard reconnecting == nil, registered, !userDisconnected else { return }
+    reconnecting = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self, self.session == nil, !self.userDisconnected else { break }
+        await self.connect()
+        if self.session != nil { break }
+        try? await Task.sleep(for: .seconds(10))
+      }
+      self?.reconnecting = nil
+    }
+  }
+
   func disconnect() {
+    userDisconnected = true
+    reconnecting?.cancel()
     stopCamera()
     session?.stop()
     dropSession()
