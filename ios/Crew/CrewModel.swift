@@ -79,7 +79,7 @@ final class CrewModel: ObservableObject {
     glasses.onHeard = { [weak self] text in self?.heard(text) }
     glasses.onHearing = { [weak self] in self?.hearing() }
     glasses.onButton = { [weak self] in self?.button() }
-    glasses.onEvent = { [weak self] kind in self?.client?.event(kind) }
+    glasses.onEvent = { [weak self] kind, detail in self?.client?.event(kind, detail: detail) }
     glasses.onLongPress = { [weak self] in self?.longPress() }
     glasses.onLaunched = { [weak self] in Task { await self?.glasses.connect(); await self?.say("Crew's here.") } }
   }
@@ -185,8 +185,9 @@ final class CrewModel: ObservableObject {
         try? await Task.sleep(for: .milliseconds(200))
       }
       try? await Task.sleep(for: .seconds(seconds))
-      guard !Task.isCancelled else { return }
-      self?.awaitingRequest = false
+      guard !Task.isCancelled, let self else { return }
+      self.awaitingRequest = false
+      if self.bareWake { self.countFalseWake("no request after Yes?") }
     }
   }
   private var awaitWindow: Double = 12
@@ -200,6 +201,50 @@ final class CrewModel: ObservableObject {
   private var lastGreeting: Date?
   private var finalsHeard = 0
 
+  // MARK: wake tracking (Settings > Developer, and wake_* lines in the service log)
+
+  /// Every wake, kept on the phone across launches, and how many looked false: a bare wake that
+  /// got no request before the window closed, or "never mind" / "not you" straight after one.
+  @Published private(set) var wakes = UserDefaults.standard.integer(forKey: "wakes")
+  @Published private(set) var falseWakes = UserDefaults.standard.integer(forKey: "falseWakes")
+  /// A bare wake ("Yes?") still waiting to see whether a request follows.
+  private var bareWake = false
+  /// A wake within the last 20 s, so "never mind" / "not you" can mark it false.
+  private var lastWakeAt: Date?
+
+  private func countWake(_ heard: String, bare: Bool) {
+    wakes += 1
+    UserDefaults.standard.set(wakes, forKey: "wakes")
+    lastWakeAt = Date()
+    bareWake = bare
+    client?.event("woke", detail: "\(bare ? "bare" : "with request"): \(heard.lowercased().prefix(60))")
+  }
+
+  private func countFalseWake(_ why: String) {
+    falseWakes += 1
+    UserDefaults.standard.set(falseWakes, forKey: "falseWakes")
+    lastWakeAt = nil
+    bareWake = false
+    client?.event("wake_false", detail: why)
+  }
+
+  func resetWakeCounts() {
+    wakes = 0; falseWakes = 0
+    UserDefaults.standard.set(0, forKey: "wakes")
+    UserDefaults.standard.set(0, forKey: "falseWakes")
+  }
+
+  static func notYou(_ r: String) -> Bool {
+    let r = r.lowercased()
+    return r.contains("not you") || r.contains("not talking to you") || r.contains("false alarm")
+  }
+
+  static func callsOff(_ r: String) -> Bool {
+    let r = r.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+    return ["never mind", "nevermind", "not you", "not talking to you", "wasn't talking to you", "false alarm",
+            "nothing", "cancel", "forget it", "no one", "nobody"].contains { r == $0 || r.hasPrefix($0 + " ") || r.hasPrefix($0 + ",") }
+  }
+
   private func heard(_ text: String) {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     finalsHeard += 1
@@ -211,6 +256,15 @@ final class CrewModel: ObservableObject {
       // In the follow-up window no wake phrase is needed; drop one if it was said anyway.
       let request = Self.afterWakeWord(t)
         ?? (lower.hasPrefix("crew") ? String(t.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?")) : t)
+      // After a bare wake any "never mind" means it woke by mistake; after an answer only
+      // "not you" / "false alarm" does ("never mind" there is just changing your mind).
+      if let woke = lastWakeAt, Date().timeIntervalSince(woke) < 20,
+         bareWake ? Self.callsOff(request) : Self.notYou(request) {
+        countFalseWake("called off: \(request.lowercased().prefix(30))")
+        Task { await say("Okay.") }
+        return
+      }
+      bareWake = false
       if request.isEmpty {
         listenForRequest(seconds: 10)
         Task { await say("Yes?") }
@@ -241,6 +295,8 @@ final class CrewModel: ObservableObject {
       }
       return
     }
+    countWake(joinedText, bare: request.isEmpty)
+    if Self.callsOff(request) { countFalseWake("called off: \(request.lowercased().prefix(30))"); return }
     do {
       let r = request.lowercased()
       if Self.wantsKitchenMode(r) { Task { await startKitchen() }; return }
@@ -258,8 +314,9 @@ final class CrewModel: ObservableObject {
         // Just "crew" and a pause: answer like the button does and take the next sentence.
         listenForRequest(seconds: 10)
         Task { await say("Yes?") }
+      } else {
+        bareWake = false // bare wake while busy: nothing waits on it
       }
-      client?.event("woke")
     }
   }
 

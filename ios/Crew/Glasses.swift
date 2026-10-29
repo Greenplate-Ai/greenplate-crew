@@ -28,7 +28,7 @@ final class Glasses: ObservableObject {
   /// A short press of the capture button.
   var onButton: (() -> Void)?
   /// Session hiccups (stopped, reconnected), passed on to the service's performance log.
-  var onEvent: ((String) -> Void)?
+  var onEvent: ((String, String?) -> Void)?
   /// Press and hold of the capture button.
   var onLongPress: (() -> Void)?
   /// "Hey Meta, start Kitchen Crew".
@@ -38,6 +38,12 @@ final class Glasses: ObservableObject {
   private var speech: Speech?
   private var speechStarted = false
   private var reviving: Task<Void, Never>?
+  /// When the recognizer last gave us anything (partial, final, or a fresh start).
+  private var lastSpeechAt = Date()
+  /// A partial that never became a sentence: delivered after a pause, then its late final skipped.
+  private var settling: Task<Void, Never>?
+  private var fromPartial: String?
+  private var lastCheckIn = Date()
   private var camera: Camera?
   private var latestFrame: VideoFrame?
   private var tokens: [any AnyListenerToken] = []
@@ -132,7 +138,7 @@ final class Glasses: ObservableObject {
             // Glasses folded, taken off, or the session cut while off-screen: Meta needs a new
             // session each time, so start one as soon as they're back - no need to open the app.
             self.dropSession()
-            self.onEvent?(UIApplication.shared.applicationState == .active ? "session_stopped" : "session_stopped_offscreen")
+            self.onEvent?(UIApplication.shared.applicationState == .active ? "session_stopped" : "session_stopped_offscreen", nil)
             self.reconnectWhenBack()
             return
           case .paused:
@@ -233,7 +239,7 @@ final class Glasses: ObservableObject {
       while !Task.isCancelled {
         guard let self, self.session == nil, !self.userDisconnected else { break }
         await self.connect()
-        if self.session != nil { self.onEvent?("reconnected"); break }
+        if self.session != nil { self.onEvent?("reconnected", nil); break }
         try? await Task.sleep(for: .seconds(10))
       }
       self?.reconnecting = nil
@@ -254,6 +260,8 @@ final class Glasses: ObservableObject {
     listening = false
     reviving?.cancel()
     reviving = nil
+    settling?.cancel()
+    fromPartial = nil
     camera = nil
     tokens.removeAll()
     cameraTokens.removeAll()
@@ -269,8 +277,27 @@ final class Glasses: ObservableObject {
       Task { @MainActor in
         guard let self else { return }
         self.heard = result.text
-        if result.isFinal, !result.text.isEmpty { self.onHeard?(result.text) }
-        else if !result.text.isEmpty { self.onHearing?() }
+        self.lastSpeechAt = Date()
+        guard !result.text.isEmpty else { return }
+        if result.isFinal {
+          self.settling?.cancel()
+          // Already acted on from its partial: the late final is the same sentence.
+          if let early = self.fromPartial, result.text.lowercased().hasPrefix(early.lowercased()) { self.fromPartial = nil; return }
+          self.fromPartial = nil
+          self.onHeard?(result.text)
+        } else {
+          self.onHearing?()
+          self.settle(result.text)
+        }
+      }
+    }.store(into: &tokens)
+    // Errors don't change the state, so a failed recognizer can sit "started" and hear nothing.
+    // Log it and restart it.
+    sp.errorPublisher.listen { [weak self] error in
+      Task { @MainActor in
+        guard let self else { return }
+        self.onEvent?("speech_error", error.description)
+        if error != .unavailable { self.restartSpeech(why: "error") } // unavailable = these glasses can't
       }
     }.store(into: &tokens)
     // The recognizer stops on its own (silence, a photo, the glasses coming off). Meta's sample
@@ -282,6 +309,7 @@ final class Glasses: ObservableObject {
         case .started:
           self.speechStarted = true
           self.listening = true
+          self.lastSpeechAt = Date()
         case .stopped:
           self.listening = false
           if self.speechStarted { self.reviveSpeech() }
@@ -297,6 +325,10 @@ final class Glasses: ObservableObject {
   /// Keeps the recognizer running for as long as the session is alive: every 2 s, if it has
   /// stopped (silence, the crew's voice, the glasses idling), start it again. It never gives up,
   /// because a recognizer left off is what made "crew" stop working after the first answer.
+  /// It can also stall while still saying "started" (Oct 29: one sentence, then nothing for
+  /// 10 minutes), so 2 minutes with no words at all gets a full stop and start.
+  /// Every 5 minutes it reports how listening is going, so a quiet stretch can be told apart
+  /// from a deaf one in the service log.
   func reviveSpeech() {
     guard reviving == nil else { return }
     reviving = Task { [weak self] in
@@ -304,8 +336,36 @@ final class Glasses: ObservableObject {
         try? await Task.sleep(for: .seconds(2))
         guard let self, let sp = self.speech, self.session != nil else { break }
         if sp.state == .stopped { sp.start() }
+        else if Date().timeIntervalSince(self.lastSpeechAt) > 120 { self.restartSpeech(why: "quiet 2 min") }
+        if Date().timeIntervalSince(self.lastCheckIn) > 300 {
+          self.lastCheckIn = Date()
+          let place = UIApplication.shared.applicationState == .active ? "on screen" : "off screen"
+          self.onEvent?("listen_check", "\(sp.state), last words \(Int(Date().timeIntervalSince(self.lastSpeechAt))) s ago, \(place)")
+        }
       }
       self?.reviving = nil
+    }
+  }
+
+  /// Stop, then start on the next tick of reviveSpeech (start is only honoured once stopped).
+  private func restartSpeech(why: String) {
+    guard let sp = speech else { return }
+    lastSpeechAt = Date()
+    onEvent?("speech_restarted", why)
+    sp.stop()
+    reviveSpeech()
+  }
+
+  /// A partial that sits unchanged for 3 s without a final is treated as the sentence, so a
+  /// "Hey Crew" the recognizer never finishes still wakes it.
+  private func settle(_ text: String) {
+    settling?.cancel()
+    settling = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(3))
+      guard let self, !Task.isCancelled, self.heard == text else { return }
+      self.fromPartial = text
+      self.onEvent?("final_from_partial", nil)
+      self.onHeard?(text)
     }
   }
 

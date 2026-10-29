@@ -506,6 +506,13 @@ struct DeveloperView: View {
         Toggle("Show details in the chat", isOn: $showDetails)
       } footer: { Text("Times, what was heard, what the crew did, and voice errors. Off = a plain conversation.") }
       Section {
+        row("Times it woke", "\(crew.wakes)")
+        row("Looked false", crew.wakes == 0 ? "0" : "\(crew.falseWakes) (\(crew.falseWakes * 100 / crew.wakes)%)")
+        Button("Reset counts") { crew.resetWakeCounts() }
+      } header: { Text("Hey Crew") } footer: {
+        Text("False = it woke and you said nothing after \"Yes?\", or said \"never mind\" / \"not you\". Every wake is also in the service log with what was heard.")
+      }
+      Section {
         row("Address", crew.serviceAddress.isEmpty ? "not set" : crew.serviceAddress)
         Button("Check connection") { Task { health = await crew.checkService() } }
         if !health.isEmpty { Text(health).font(.footnote).foregroundStyle(Theme.muted).textSelection(.enabled) }

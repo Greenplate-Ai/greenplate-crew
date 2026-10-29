@@ -20,6 +20,29 @@ export function report(lines: string[]): string {
   const out = ['| what | count | median | p90 | worst |', '|---|---|---|---|---|']
   for (const [k, a] of [...series].sort()) out.push(`| ${k} | ${a.length} | ${(pct(a, 0.5) / 1000).toFixed(1)} s | ${(pct(a, 0.9) / 1000).toFixed(1)} s | ${(Math.max(...a) / 1000).toFixed(1)} s |`)
   for (const [k, n] of [...counts].sort()) out.push(`| ${k} | ${n} | | | |`)
+  return [out.join('\n'), wakes(lines)].filter(Boolean).join('\n\n')
+}
+
+/** "Hey Crew" in plain numbers: how often it woke, how often that looked false, what it missed,
+ *  and the false wakes' heard text so the wake words can be tuned. */
+export function wakes(lines: string[]): string {
+  const woke = lines.filter((l) => /app woke\b/.test(l))
+  if (!woke.length && !lines.some((l) => /app wake_missed/.test(l))) return ''
+  const bare = woke.filter((l) => /\(bare:/.test(l)).length
+  const falses = lines.filter((l) => /app wake_false/.test(l))
+  const missed = lines.filter((l) => /app wake_missed/.test(l)).length
+  const rate = woke.length ? Math.round((falses.length * 100) / woke.length) : 0
+  const out = ['Hey Crew', `- woke ${woke.length} times (${woke.length - bare} with a request, ${bare} bare "Yes?")`,
+    `- looked false: ${falses.length} (${rate}%)`, `- heard crew-like words but did not wake: ${missed}`]
+  // The heard text of each wake that turned out false: the wake line just before its wake_false.
+  const heard = (l: string) => /\((?:bare|with request): (.*)\)$/.exec(l)?.[1]
+  const falseHeard: string[] = []
+  let lastWoke: string | undefined
+  for (const l of lines) {
+    if (/app woke\b/.test(l)) lastWoke = heard(l)
+    else if (/app wake_false/.test(l) && lastWoke) { falseHeard.push(lastWoke); lastWoke = undefined }
+  }
+  if (falseHeard.length) out.push(`- false wakes heard as: ${falseHeard.slice(-10).map((h) => `"${h}"`).join(', ')}`)
   return out.join('\n')
 }
 

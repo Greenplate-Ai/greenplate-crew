@@ -153,6 +153,14 @@ describe('performance report', async () => {
     expect(r).toContain('| app reconnected | 1 |')
     expect(r).toContain('| app voice_failed | 1 |')
   })
+  it('counts wakes and false wakes, and shows what the false ones heard', () => {
+    const r = report(['app woke (with request: hey crew whats for dinner)', 'app woke (bare: hey true)',
+      'app wake_false (no request after Yes?)', 'app wake_missed (5 words)'])
+    expect(r).toContain('woke 2 times (1 with a request, 1 bare')
+    expect(r).toContain('looked false: 1 (50%)')
+    expect(r).toContain('did not wake: 1')
+    expect(r).toContain('"hey true"')
+  })
 })
 
 describe('connecting the kitchen from the app', async () => {
