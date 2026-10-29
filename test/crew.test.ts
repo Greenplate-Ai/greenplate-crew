@@ -122,4 +122,13 @@ describe('the crew', () => {
     expect(rowNamed(rows, 'milk')?.id).toBe('1')
     expect(rowNamed(rows, 'saffron')).toBeUndefined()
   })
+
+  it('sends feedback to the GreenplateAi team only after a yes, from the lead itself', async () => {
+    const k = fakeKitchen({})
+    const asked: string[] = []
+    const model = scripted([call('feedback_add', { kind: 'request', text: 'Voice feedback that files a ticket', screen: 'kitchen-crew' }), say('Sent to the team.')])
+    await askCrew('send a request for voice feedback tickets', 'general', opts({ model, kitchen: k, confirm: async (q) => { asked.push(q); return true } }))
+    expect(spokenQuestion(asked[0]!)).toBe('The lead wants to send "Voice feedback that files a ticket" to the GreenplateAi team. Yes or no?')
+    expect(k.calls).toContain('feedback_add')
+  })
 })

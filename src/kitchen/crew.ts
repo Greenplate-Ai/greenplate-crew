@@ -67,6 +67,7 @@ const T = {
   logDay: svc('kitchen_log_day', 'What was logged on a date.', 'read', obj({ date: day }, ['date'])),
   logAdd: svc('kitchen_log_add', 'Log a meal: a date, a slot, and items (each a recipeId, or a name; nutrition is estimated when not given).', 'write', obj({ date: day, slot: { type: 'string', enum: ['breakfast', 'lunch', 'dinner', 'snack'] }, items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, recipeId: { type: 'string' } } } } }, ['date', 'slot']), true),
   logRemove: svc('kitchen_log_remove', 'Remove one logged item (id) or a whole meal (mealId), both from kitchen_log_day.', 'write', obj({ id: { type: 'string' }, mealId: { type: 'string' } }), true),
+  feedback: svc('feedback_add', "Send the person's feedback to the GreenplateAi team: a request, a blocker, a bug or an idea (kind), in their words (text). screen is kitchen-crew.", 'write', obj({ kind: { type: 'string', enum: ['request', 'blocker', 'bug', 'idea'] }, text: { type: 'string' }, context: { type: 'string' }, screen: { type: 'string' } }, ['kind', 'text']), true),
   shoppingList: {
     via: 'local', kind: 'read',
     def: { name: 'shopping_list', description: 'What to buy for the planned meals, minus what is already in the pantry.', parameters: obj({ from: day, to: day }, ['from', 'to']) },
@@ -87,6 +88,7 @@ const agents: Record<string, Agent<Ctx>> = {
     handoff('planner', 'planning or repairing the week, recipe ideas, saving recipes to favourites'),
     handoff('logger', 'recording what was eaten, or fixing the food log'),
     handoff('chef', 'cooking a planned recipe, step by step'),
+    T.feedback,
   ] },
   shopper: { name: 'shopper', job: 'You keep the grocery list: read it, add what the person asks for (one add per item, all in the same turn), tick off what they bought, take off what they no longer need, and work out what the plan still needs.', tools: [T.groceryList, T.groceryAdd, T.groceryCheckOff, T.groceryRemove, T.shoppingList, T.pantryList] },
   pantry: { name: 'pantry', job: 'You keep the pantry: what is there, adding items, changing how much is left, removing what is used up, and what is about to go off.', tools: [T.pantryList, T.pantryAdd, T.pantryUpdate, T.pantryRemove, T.planList, T.myRecipes] },
@@ -101,6 +103,7 @@ export const KITCHEN_CREW: Fleet<Ctx> = {
   rules: [
     'Never give health, diet or medical advice, and never tell anyone what they should eat.',
     'Only use recipes and numbers a tool returned; never invent them.',
+    'Never say something was saved, added, noted or sent unless a tool did it and said so.',
     'Read the pantry and the plan once per run, not once per item.',
     'Make all the changes a request needs in one turn, so the person is asked once.',
     'Put the recipe title in a plan change (title), so the question can name it.',

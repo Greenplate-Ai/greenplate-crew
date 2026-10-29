@@ -24,6 +24,7 @@ const ACTIONS: Record<string, (l: Args[]) => string> = {
     return `log ${spokenList(foods)}${one(l).slot ? ` as ${one(l).slot}` : ''} in the food log`
   },
   kitchen_log_remove: (l) => l.length > 1 ? `remove ${l.length} entries from the food log` : 'remove that entry from the food log',
+  feedback_add: (l) => `send ${l.length > 1 ? 'that feedback' : `"${String(one(l).text ?? 'that').slice(0, 90)}"`} to the GreenplateAi team`,
   my_collection_add: (l) => `save ${l.length > 1 ? 'those recipes' : 'that recipe'} to ${one(l).id === 'favourites' ? 'your favourites' : 'that collection'}`,
 }
 
