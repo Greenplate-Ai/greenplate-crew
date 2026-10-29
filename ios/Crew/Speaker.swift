@@ -72,6 +72,43 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   /// A short tone in place of speech when the crew's voice can't be reached.
   func chime() { AudioServicesPlaySystemSound(1057) }
 
+  private var tone: AVAudioPlayer?
+
+  /// A soft rising two-note tone: the crew is listening for your next sentence. Played like the
+  /// voice, so it comes out of the glasses, and on its own player so it never cuts a line off.
+  func listeningChime() {
+    guard let p = try? AVAudioPlayer(data: Self.chimeWav) else { return }
+    p.volume = 0.6
+    tone = p
+    p.play()
+  }
+
+  private static let chimeWav: Data = {
+    let rate = 16_000.0
+    var pcm: [Int16] = []
+    for (freq, seconds) in [(880.0, 0.08), (1318.5, 0.13)] {
+      let n = Int(rate * seconds)
+      for i in 0..<n {
+        let fade = min(1, Double(i) / 160) * (1 - Double(i) / Double(n)) // quick start, soft end
+        pcm.append(Int16(sin(2 * .pi * freq * Double(i) / rate) * fade * 9_000))
+      }
+    }
+    return wav(pcm, rate: UInt32(rate))
+  }()
+
+  /// 16-bit mono samples as a WAV file.
+  private static func wav(_ samples: [Int16], rate: UInt32) -> Data {
+    var d = Data()
+    func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+    func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+    let bytes = UInt32(samples.count * 2)
+    d.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes); d.append(contentsOf: Array("WAVE".utf8))
+    d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16)
+    d.append(contentsOf: Array("data".utf8)); u32(bytes)
+    for s in samples { withUnsafeBytes(of: s.littleEndian) { d.append(contentsOf: $0) } }
+    return d
+  }
+
   /// Plays audio made by the crew service (the ElevenLabs voice). Returns false if it can't play.
   func play(_ audio: Data) async -> Bool {
     guard let p = try? AVAudioPlayer(data: audio) else { return false }

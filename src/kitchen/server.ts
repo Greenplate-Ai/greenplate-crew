@@ -3,7 +3,7 @@
 //   GET  /runs/:id                                  -> {status, answer?, question?, spoken?, steps}
 //   POST /runs/:id/answer {yes}                     -> {ok}
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
-//   POST /shopping/:id/frame {jpegBase64}           -> {say?}
+//   POST /shopping/:id/frame {barcode? | jpegBase64} -> {say?, unknownBarcode?}
 //   POST /shopping/:id/checkout                     -> {say}
 //   POST /kitchen/start                              -> {sessionId}          (kitchen mode: food coming out)
 //   POST /kitchen/:id/item {barcode? | jpegBase64?}  -> {item?, say?}        (say is null when already counted)
@@ -275,6 +275,13 @@ export function crewServer(d: ServerDeps) {
       if (!trip) return send(res, 404, { error: 'no such trip' })
       if (parts[2] === 'frame') {
         const body = await json(req, 4_000_000)
+        // Barcode first: read on the phone for free and named from the product database, so most
+        // items need no photo at all. An unknown barcode says so, and the app sends a photo instead.
+        if (body.barcode) {
+          const item = await lookup(String(body.barcode))
+          if (!item) return send(res, 200, { seen: null, unknownBarcode: true })
+          return send(res, 200, { seen: item, say: noticeItem(trip, { item, confidence: 1 }) })
+        }
         const jpeg = String(body.jpegBase64 ?? '')
         if (!jpeg) return send(res, 400, { error: 'jpegBase64 is required' })
         if (!d.eyes) return send(res, 503, { error: 'vision is not set up yet', missing: d.missing ?? [] })

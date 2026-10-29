@@ -9,7 +9,7 @@ export type Kind = 'read' | 'write'
 /** A call to the deployment's service (for GreenplateAi: its MCP plug-in). */
 export interface ServiceTool { via: 'service'; def: ToolDef; kind: Kind; askFirst?: boolean }
 /** A tool computed inside the fleet; it reports how many service calls it spent. */
-export interface LocalTool<C = unknown> { via: 'local'; def: ToolDef; kind: Kind; run(args: Record<string, unknown>, env: LocalEnv<C>): Promise<{ text: string; serviceCalls: number; note?: string }> }
+export interface LocalTool<C = unknown> { via: 'local'; def: ToolDef; kind: Kind; askFirst?: boolean; run(args: Record<string, unknown>, env: LocalEnv<C>): Promise<{ text: string; serviceCalls: number; note?: string }> }
 export interface HandoffTool { via: 'handoff'; def: ToolDef; kind: 'read'; to: string }
 export type Tool<C = unknown> = ServiceTool | LocalTool<C> | HandoffTool
 
@@ -85,7 +85,16 @@ async function runAgent<C>(run: Run<C>, name: string, task: string): Promise<{ a
     if (fanOut) run.log.add({ agent: name, kind: 'handoff', note: `in parallel: ${turn.toolCalls.map((c) => c.name).join(', ')}` })
     const outs: { text: string; stop?: Stop }[] = []
     if (fanOut) outs.push(...(await Promise.all(turn.toolCalls.map((c) => runTool(run, name, byName.get(c.name), c)))))
-    else for (const c of turn.toolCalls) { const o = await runTool(run, name, byName.get(c.name), c); outs.push(o); if (o.stop) break }
+    else {
+      // Changes asked for together get one question ("add milk, eggs and bread?"), not one each.
+      const asks = turn.toolCalls.filter((c) => { const t = byName.get(c.name); return t && t.via !== 'handoff' && t.kind === 'write' && t.askFirst && run.opts.canWrite })
+      let decided: boolean | undefined
+      if (asks.length) {
+        decided = await run.opts.confirm(`${name} wants to ${asks.map((c) => `${c.name}: ${JSON.stringify(c.args)}`).join('\n')}`)
+        run.log.add({ agent: name, kind: 'ask', tool: asks.map((c) => c.name).join(', '), outcome: decided ? 'ok' : 'declined' })
+      }
+      for (const c of turn.toolCalls) { const o = await runTool(run, name, byName.get(c.name), c, decided); outs.push(o); if (o.stop) break }
+    }
 
     for (const [i, out] of outs.entries()) {
       if (out.stop) return { answer: out.text, stoppedBecause: out.stop }
@@ -95,7 +104,7 @@ async function runAgent<C>(run: Run<C>, name: string, task: string): Promise<{ a
   return { answer: 'I ran out of steps before finishing.', stoppedBecause: 'turns' }
 }
 
-async function runTool<C>(run: Run<C>, agent: string, tool: Tool<C> | undefined, c: ToolCall): Promise<{ text: string; stop?: Stop }> {
+async function runTool<C>(run: Run<C>, agent: string, tool: Tool<C> | undefined, c: ToolCall, decided?: boolean): Promise<{ text: string; stop?: Stop }> {
   const { opts, log } = run
   if (!tool) {
     log.add({ agent, kind: 'tool', tool: c.name, outcome: 'refused', note: 'not this agent’s tool' })
@@ -110,9 +119,10 @@ async function runTool<C>(run: Run<C>, agent: string, tool: Tool<C> | undefined,
     log.add({ agent, kind: 'tool', tool: tool.def.name, outcome: 'preview', note: 'this plan shows suggestions only' })
     return { text: 'This account’s plan shows suggestions only. Describe the change instead of saving it.' }
   }
-  if (tool.via === 'service' && tool.askFirst) {
-    const yes = await opts.confirm(`${agent} wants to ${c.name}: ${JSON.stringify(c.args)}`)
-    log.add({ agent, kind: 'ask', tool: c.name, outcome: yes ? 'ok' : 'declined' })
+  if (tool.askFirst) {
+    // Already asked with the rest of this turn's changes, or asked now.
+    const yes = decided ?? await opts.confirm(`${agent} wants to ${c.name}: ${JSON.stringify(c.args)}`)
+    if (decided === undefined) log.add({ agent, kind: 'ask', tool: c.name, outcome: yes ? 'ok' : 'declined' })
     if (!yes) return { text: 'The person said no. Do not make this change.' }
   }
   if (run.calls.n >= opts.budget.maxServiceCalls) {

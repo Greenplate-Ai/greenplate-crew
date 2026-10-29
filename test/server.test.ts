@@ -8,13 +8,13 @@ const TOKEN = 'test-token-0123456789abcdef'
 let close: (() => void) | null = null
 afterEach(() => { close?.(); close = null })
 
-async function start(model = scripted([say('ok')]), eyes = async () => ({ item: null as string | null, confidence: 0 }), speak?: (t: string) => Promise<Buffer>) {
+async function start(model = scripted([say('ok')]), eyes = async () => ({ item: null as string | null, confidence: 0 }), speak?: (t: string) => Promise<Buffer>, lookup?: (code: string) => Promise<string | null>) {
   const kitchen = fakeKitchen({
     pantry: [{ name: 'soy sauce' }, { name: 'eggs' }],
     plan: [{ date: '2026-10-27', slot: 'dinner', recipeId: 'r1', title: 'Fried rice' }],
     recipes: { r1: { title: 'Fried rice', servings: 2, ingredients: [{ name: 'egg' }, { name: 'green onions' }, { name: 'rice' }, { name: 'soy sauce' }] } },
   })
-  const server = crewServer({ model, kitchen, eyes, speak, canWrite: true, appToken: TOKEN, today: () => '2026-10-26' })
+  const server = crewServer({ model, kitchen, eyes, speak, lookup, canWrite: true, appToken: TOKEN, today: () => '2026-10-26' })
   await new Promise<void>((r) => server.listen(0, r))
   close = () => server.close()
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -70,6 +70,17 @@ describe('crew service', () => {
     expect(c.body.say).toBeNull()
     const out = await req('POST', `/shopping/${trip.body.tripId}/checkout`)
     expect(out.body.say).toBe('Before you check out: you still need rice.')
+  })
+
+  it('live shopping reads a barcode first, and asks for a photo when the barcode is unknown', async () => {
+    let photos = 0
+    const req = await start(undefined, async () => { photos++; return { item: null, confidence: 0 } }, undefined, async (code) => (code === '0123' ? 'green onions' : null))
+    const trip = await req('POST', '/shopping/start', { from: '2026-10-27', to: '2026-10-27' })
+    const a = await req('POST', `/shopping/${trip.body.tripId}/frame`, { barcode: '0123' })
+    expect(a.body.say).toBe('green onions, checked off. Still need rice.')
+    const b = await req('POST', `/shopping/${trip.body.tripId}/frame`, { barcode: '9999' })
+    expect(b.body).toMatchObject({ seen: null, unknownBarcode: true })
+    expect(photos).toBe(0)
   })
 
   it('asks for text before speaking, and says when no voice is configured', async () => {

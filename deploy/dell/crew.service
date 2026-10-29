@@ -13,7 +13,8 @@ WorkingDirectory=/opt/greenplate-crew
 ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/kitchen/serve.ts
 Restart=always
 RestartSec=5
-Environment=PORT=8787 NODE_ENV=production AZURE_KEYVAULT=kv-i2-dev-bpwlfu
+# Kitchen writes on (2026-10-29): every change is asked out loud first, yes or no.
+Environment=PORT=8787 NODE_ENV=production AZURE_KEYVAULT=kv-i2-dev-bpwlfu CREW_CAN_WRITE=1
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

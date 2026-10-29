@@ -40,7 +40,8 @@ export async function connectKitchen(opts: { url?: string; token?: string | (() 
 
 /** An in-memory kitchen with GreenplateAi's tool names and shapes, for tests and offline rehearsal. */
 export function fakeKitchen(state: {
-  pantry?: { name: string; quantity?: number; unit?: string; expires?: string }[]
+  pantry?: { id?: string; name: string; quantity?: number; unit?: string; expires?: string }[]
+  grocery?: { id?: string; name: string; ticked?: boolean }[]
   plan?: { date: string; slot: string; recipeId: string; title: string; servings?: number }[]
   recipes?: Record<string, { title: string; servings: number; ingredients: { qty?: number; unit?: string; name: string }[] }>
   limitAfter?: number
@@ -54,7 +55,20 @@ export function fakeKitchen(state: {
       calls.push(tool)
       if (state.limitAfter !== undefined && calls.length > state.limitAfter) return no("You've reached today's limit.")
       switch (tool) {
-        case 'kitchen_pantry_list': return ok({ items: state.pantry ?? [] })
+        case 'kitchen_pantry_list': return ok({ items: (state.pantry ?? []).map((p, i) => ({ id: p.id ?? `p${i}`, ...p })) })
+        case 'kitchen_grocery_list': return ok({ items: (state.grocery ?? []).map((g, i) => ({ id: g.id ?? `g${i}`, ticked: false, ...g })), fromPlan: [] })
+        case 'kitchen_grocery_add': {
+          state.grocery = [...(state.grocery ?? []), { id: `g${(state.grocery ?? []).length}`, name: String(args.name) }]
+          return ok({ item: args })
+        }
+        case 'kitchen_grocery_update': case 'kitchen_grocery_remove': case 'kitchen_pantry_remove': {
+          const list = tool === 'kitchen_pantry_remove' ? state.pantry ?? [] : state.grocery ?? []
+          const i = list.findIndex((r, n) => (r.id ?? `${tool === 'kitchen_pantry_remove' ? 'p' : 'g'}${n}`) === args.id)
+          if (i < 0) return no('No item of yours has that id.')
+          if (tool === 'kitchen_grocery_update') (list[i] as { ticked?: boolean }).ticked = args.ticked === true
+          else list.splice(i, 1)
+          return ok({ removed: tool !== 'kitchen_grocery_update' })
+        }
         case 'kitchen_plan_list': return ok({ items: (state.plan ?? []).filter((p) => p.date >= String(args.from) && p.date <= String(args.to)) })
         case 'my_recipe_get': {
           const r = state.recipes?.[String(args.id)]

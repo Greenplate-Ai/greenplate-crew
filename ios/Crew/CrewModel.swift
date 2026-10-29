@@ -174,7 +174,7 @@ final class CrewModel: ObservableObject {
   /// Opens the no-"crew" window. The clock starts only once the glasses are listening again (the
   /// recognizer is off while the crew speaks and takes a moment to come back), and restarts
   /// whenever a sentence is in progress, so a slow or long reply isn't cut off.
-  private func listenForRequest(seconds: Double) {
+  private func listenForRequest(seconds: Double, chime: Bool = true) {
     awaitingRequest = true
     awaitWindow = seconds
     awaitTimeout?.cancel()
@@ -184,6 +184,8 @@ final class CrewModel: ObservableObject {
         if self.glasses.listening { break }
         try? await Task.sleep(for: .milliseconds(200))
       }
+      // The tone says "go ahead": it plays once the glasses can actually hear you.
+      if chime, !Task.isCancelled { self?.speaker.listeningChime() }
       try? await Task.sleep(for: .seconds(seconds))
       guard !Task.isCancelled, let self else { return }
       self.awaitingRequest = false
@@ -194,8 +196,35 @@ final class CrewModel: ObservableObject {
 
   /// A sentence is in progress: keep the window open.
   private func hearing() {
+    // Still talking after a sentence ended: hold the request until you stop.
+    if !sentence.isEmpty { sendWhenQuiet(after: 3.5); return }
     guard awaitingRequest else { return }
-    listenForRequest(seconds: awaitWindow)
+    listenForRequest(seconds: awaitWindow, chime: false)
+  }
+
+  // MARK: done talking: a pause isn't the end of the request
+
+  /// The request so far, while waiting to hear whether more is coming.
+  private var sentence = ""
+  private var finishing: Task<Void, Never>?
+
+  /// A sentence ended. Wait a moment: if you keep talking, the next sentence joins it
+  /// ("add milk... and eggs"). Then send the whole thing.
+  private func askWhenDone(_ text: String) {
+    sentence = sentence.isEmpty ? text : "\(sentence) \(text)"
+    sendWhenQuiet(after: 0.8)
+  }
+
+  private func sendWhenQuiet(after seconds: Double) {
+    finishing?.cancel()
+    finishing = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(seconds))
+      guard let self, !Task.isCancelled else { return }
+      let request = self.sentence
+      self.sentence = ""
+      self.finishing = nil
+      if !request.isEmpty { await self.ask(request) }
+    }
   }
 
   private var lastGreeting: Date?
@@ -234,6 +263,17 @@ final class CrewModel: ObservableObject {
     UserDefaults.standard.set(0, forKey: "falseWakes")
   }
 
+  /// A spoken answer to "Yes or no?", with or without "Hey Crew" in front; nil if it's neither.
+  static func yesOrNo(_ said: String) -> Bool? {
+    let raw = afterWakeWord(said).flatMap { $0.isEmpty ? nil : $0 } ?? said
+    let r = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+    let starts = { (words: [String]) in words.contains { r == $0 || r.hasPrefix($0 + " ") || r.hasPrefix($0 + ",") || r.hasPrefix($0 + ".") } }
+    // "No" first: "no, don't" and "no thanks" are noes.
+    if starts(["no", "nope", "nah", "don't", "do not", "stop", "cancel", "never mind", "not now", "wait", "hold on"]) { return false }
+    if starts(["yes", "yeah", "yep", "yup", "sure", "do it", "go ahead", "okay", "ok", "please", "correct", "sounds good", "that's right", "absolutely", "of course", "add it", "add them"]) { return true }
+    return nil
+  }
+
   static func notYou(_ r: String) -> Bool {
     let r = r.lowercased()
     return r.contains("not you") || r.contains("not talking to you") || r.contains("false alarm")
@@ -250,6 +290,8 @@ final class CrewModel: ObservableObject {
     finalsHeard += 1
     if finalsHeard % 10 == 1 { client?.event("finals_heard", detail: "\(finalsHeard)") } // proof the recognizer is delivering
     let lower = t.lowercased()
+    // The same request, continued after a pause.
+    if !sentence.isEmpty, !t.isEmpty { askWhenDone(t); return }
     if awaitingRequest, pendingApproval == nil, !busy, !t.isEmpty {
       awaitingRequest = false
       awaitTimeout?.cancel()
@@ -270,12 +312,11 @@ final class CrewModel: ObservableObject {
         Task { await say("Yes?") }
         return
       }
-      Task { await ask(request) }
+      if Self.wantsMealPhoto(request) { Task { await ask(request) } } else { askWhenDone(request) }
       return
     }
     if let decide = pendingApproval {
-      if lower.hasPrefix("yes") || lower.hasPrefix("yeah") || lower.hasPrefix("do it") { pendingApproval = nil; decide(true) }
-      else if lower.hasPrefix("no") || lower.hasPrefix("don't") || lower.hasPrefix("stop") { pendingApproval = nil; decide(false) }
+      if let yes = Self.yesOrNo(t) { pendingApproval = nil; decide(yes) }
       return
     }
     // The recognizer sometimes ends a sentence after "Hey": join it to the next one if it comes quickly.
@@ -309,7 +350,7 @@ final class CrewModel: ObservableObject {
       } else if request.lowercased().hasPrefix("checkout") || request.lowercased().hasPrefix("check out") || request.lowercased().hasPrefix("done shopping") {
         Task { await endShopping() }
       } else if !request.isEmpty {
-        Task { await ask(request) }
+        askWhenDone(request)
       } else if !busy {
         // Just "crew" and a pause: answer like the button does and take the next sentence.
         listenForRequest(seconds: 10)
@@ -597,11 +638,22 @@ final class CrewModel: ObservableObject {
     }
   }
 
+  /// Barcode first: read on the phone (free, no photo sent) and named from the product database.
+  /// Only when there's no new barcode in view, or the database doesn't know it, does a photo go.
   private func watchFrames() async {
+    var tried = Set<String>()
     while shopping, !Task.isCancelled {
       try? await Task.sleep(for: .milliseconds(1500))
-      guard let client, let trip, !busy, let jpeg = glasses.takeFrame() else { continue }
-      if let said = try? await client.frame(trip: trip, jpeg: jpeg), let say = said.say {
+      guard let client, let trip, !busy else { continue }
+      var said: CrewClient.Said?
+      if let code = await glasses.readBarcode(), !tried.contains(code) {
+        tried.insert(code)
+        said = try? await client.frame(trip: trip, barcode: code)
+      }
+      if said == nil || said?.unknownBarcode == true, let jpeg = glasses.takeFrame() {
+        said = try? await client.frame(trip: trip, jpeg: jpeg)
+      }
+      if let say = said?.say {
         add("Crew", say)
         await self.say(say)
       }

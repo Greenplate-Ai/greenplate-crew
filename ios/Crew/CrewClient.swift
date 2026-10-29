@@ -14,7 +14,7 @@ struct CrewClient {
     let lane: String?
   }
   struct Trip: Decodable { let tripId: String; let needs: [String] }
-  struct Said: Decodable { let seen: String?; let say: String? }
+  struct Said: Decodable { let seen: String?; let say: String?; var unknownBarcode: Bool? = nil }
 
   /// `history` is the chat so far (who, text), so the crew remembers the conversation.
   func ask(_ request: String, mode: String, history: [[String: String]] = []) async throws -> String {
@@ -36,6 +36,11 @@ struct CrewClient {
 
   func frame(trip: String, jpeg: Data) async throws -> Said {
     try await send("POST", "shopping/\(trip)/frame", ["jpegBase64": jpeg.base64EncodedString()])
+  }
+
+  /// A barcode read on the phone: no photo sent. unknownBarcode means send a photo instead.
+  func frame(trip: String, barcode: String) async throws -> Said {
+    try await send("POST", "shopping/\(trip)/frame", ["barcode": barcode])
   }
 
   struct MealSeen: Decodable { let mealId: String?; let say: String }

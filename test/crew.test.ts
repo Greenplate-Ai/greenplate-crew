@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { askCrew, type CrewOptions } from '../src/kitchen/crew.js'
+import { askCrew, rowNamed, type CrewOptions } from '../src/kitchen/crew.js'
+import { spokenQuestion } from '../src/kitchen/speak.js'
 import { fakeKitchen } from '../src/kitchen/service.js'
 import { call, say, scripted } from '../src/fleet/model.js'
 
@@ -65,7 +66,7 @@ describe('the crew', () => {
 
   it('on a plan that cannot save, writes become suggestions', async () => {
     const k = kitchen()
-    const model = scripted([call('ask_shopper', { task: 'add milk' }), call('kitchen_pantry_add', { name: 'milk' }), say('Suggested.'), say('I suggested adding milk.')])
+    const model = scripted([call('ask_pantry', { task: 'add milk' }), call('kitchen_pantry_add', { name: 'milk' }), say('Suggested.'), say('I suggested adding milk.')])
     const r = await askCrew('add milk to the pantry', 'general', opts({ model, kitchen: k, canWrite: false }))
     expect(r.log.steps.some((s) => s.outcome === 'preview')).toBe(true)
     expect(k.calls).not.toContain('kitchen_pantry_add')
@@ -91,5 +92,34 @@ describe('the crew', () => {
     const r = await askCrew('check', 'general', opts({ model, budget: { maxTurns: 20, maxServiceCalls: 3, maxUsd: 1 } }))
     expect(r.stoppedBecause).toBe('service_calls')
     expect(r.log.serviceCalls).toBeLessThanOrEqual(3)
+  })
+
+  it('changes asked for together get one question, and every one is made on a yes', async () => {
+    const k = fakeKitchen({ grocery: [] })
+    const asked: string[] = []
+    const adds = { text: '', toolCalls: ['milk', 'eggs', 'bread'].map((name) => ({ id: `c-${name}`, name: 'kitchen_grocery_add', args: { name } })), inputTokens: 500, outputTokens: 30 }
+    const model = scripted([call('ask_shopper', { task: 'add milk, eggs and bread' }), adds, say('Added.'), say('Added milk, eggs and bread.')])
+    await askCrew('add milk, eggs and bread to my list', 'general', opts({ model, kitchen: k, confirm: async (q) => { asked.push(q); return true } }))
+    expect(asked).toHaveLength(1)
+    expect(spokenQuestion(asked[0]!)).toBe('The shopper wants to add milk, eggs and bread to the grocery list. Yes or no?')
+    expect(k.calls.filter((c) => c === 'kitchen_grocery_add')).toHaveLength(3)
+  })
+
+  it('ticks a grocery item off by the name said, after a yes', async () => {
+    const k = fakeKitchen({ grocery: [{ name: 'Whole milk' }, { name: 'Limes' }] })
+    const asked: string[] = []
+    const model = scripted([call('ask_shopper', { task: 'got the limes' }), call('grocery_check_off', { name: 'the limes' }), say('Ticked.'), say('Limes are checked off.')])
+    await askCrew('I got the limes', 'shopping', opts({ model, kitchen: k, confirm: async (q) => { asked.push(q); return true } }))
+    expect(spokenQuestion(asked[0]!)).toBe('The shopper wants to check off the limes. Yes or no?')
+    expect(k.calls).toContain('kitchen_grocery_update')
+    const list = (await k.call('kitchen_grocery_list')).data as { items: { name: string; ticked: boolean }[] }
+    expect(list.items.find((i) => i.name === 'Limes')?.ticked).toBe(true)
+  })
+
+  it('finds the row the person meant', () => {
+    const rows = [{ id: '1', name: 'Whole milk' }, { id: '2', name: 'Eggs' }]
+    expect(rowNamed(rows, 'the eggs')?.id).toBe('2')
+    expect(rowNamed(rows, 'milk')?.id).toBe('1')
+    expect(rowNamed(rows, 'saffron')).toBeUndefined()
   })
 })
