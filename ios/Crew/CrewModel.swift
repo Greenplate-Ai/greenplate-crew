@@ -78,6 +78,7 @@ final class CrewModel: ObservableObject {
     currentChat = start[0].id
     glasses.onHeard = { [weak self] text in self?.heard(text) }
     glasses.onHearing = { [weak self] in self?.hearing() }
+    speaker.onRoute = { [weak self] route in self?.client?.event("sound_route", detail: route) }
     glasses.onButton = { [weak self] in self?.button() }
     glasses.onEvent = { [weak self] kind, detail in self?.client?.event(kind, detail: detail) }
     glasses.onLongPress = { [weak self] in self?.longPress() }
@@ -296,6 +297,10 @@ final class CrewModel: ObservableObject {
     if finalsHeard % 10 == 1 { client?.event("finals_heard", detail: "\(finalsHeard)") } // proof the recognizer is delivering
     // While testing: the first words of each sentence, so a misheard "Hey Crew" can be added to the wake words.
     if logHeard { client?.event("heard", detail: t.split(separator: " ").prefix(6).joined(separator: " ")) }
+    if let last = lastSpoken, Date().timeIntervalSince(last.at) < 4, Self.isEcho(t, of: last.text) {
+      client?.event("echo_dropped", detail: t.split(separator: " ").prefix(6).joined(separator: " "))
+      return
+    }
     let lower = t.lowercased()
     // The same request, continued after a pause.
     if !sentence.isEmpty, !t.isEmpty { askWhenDone(t); return }
@@ -679,6 +684,17 @@ final class CrewModel: ObservableObject {
     trip = nil
   }
 
+  /// The crew's last line and when it finished, to drop its own words if the microphones catch them.
+  private var lastSpoken: (text: String, at: Date)?
+
+  /// True when a heard sentence is the crew's own last line coming back (an echo), not the person.
+  static func isEcho(_ heard: String, of spoken: String) -> Bool {
+    let words = { (s: String) in s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init) }
+    let h = words(heard), s = Set(words(spoken))
+    guard h.count >= 3 else { return false }
+    return Double(h.filter(s.contains).count) / Double(h.count) >= 0.7
+  }
+
   /// Lines already spoken, kept for this session so a repeat ("Yes?", "Crew's here.") is instant and free.
   private var voiceCache: [String: Data] = [:]
 
@@ -687,6 +703,13 @@ final class CrewModel: ObservableObject {
   /// Returns nil when the voice played, otherwise why it didn't (shown under the line).
   @discardableResult
   private func say(_ text: String) async -> String? {
+    // Out of the phone speaker the glasses' microphones hear the crew and it answers itself.
+    // Words stay on screen instead, and the log says where the sound was going.
+    if speaker.onPhone {
+      client?.event("not_spoken", detail: "sound is on the phone: \(speaker.output)")
+      return "not spoken: the glasses aren't taking sound (it would come out of the phone)"
+    }
+    defer { lastSpoken = (text, Date()) }
     if let audio = voiceCache[text], await speaker.play(audio) { return nil }
     guard let client else { speaker.chime(); return "voice didn't play: crew not set up" }
     let audio: Data

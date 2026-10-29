@@ -11,6 +11,18 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   private var playDone: CheckedContinuation<Void, Never>?
   /// Set when the last line came from the natural (server) voice, so Settings can say so.
   private(set) var lastWasNatural = false
+  /// Told when the sound moves (glasses, phone speaker, ...), so it shows in the service log.
+  var onRoute: ((String) -> Void)?
+
+  /// Where sound is going right now, e.g. "Oakley Meta (BluetoothA2DPOutput)".
+  var output: String {
+    AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName) (\($0.portType.rawValue))" }.joined(separator: ", ")
+  }
+
+  /// True when the glasses aren't taking the sound and it would come out of the phone itself.
+  var onPhone: Bool {
+    AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver }
+  }
 
   override init() {
     super.init()
@@ -20,6 +32,13 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     try? audio.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
     try? audio.setActive(true) // ready at launch, so the first line doesn't wait for audio to start up
     keepAlive()
+    NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] n in
+      let why = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+      Task { @MainActor in
+        guard let self else { return }
+        self.onRoute?("\(self.output) (\(why.map(Self.reason) ?? "unknown"))")
+      }
+    }
     // A call or Siri stops the silence; start it again afterwards.
     NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
       guard let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
@@ -31,6 +50,19 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   }
 
   private var silence: AVAudioPlayer?
+
+  private static func reason(_ r: AVAudioSession.RouteChangeReason) -> String {
+    switch r {
+    case .newDeviceAvailable: return "device connected"
+    case .oldDeviceUnavailable: return "device went away"
+    case .categoryChange: return "category change"
+    case .override: return "override"
+    case .wakeFromSleep: return "wake from sleep"
+    case .noSuitableRouteForCategory: return "no route"
+    case .routeConfigurationChange: return "configuration change"
+    default: return "other"
+    }
+  }
 
   /// Plays silence on a loop so iOS keeps the app running when it's not on screen: otherwise it is
   /// suspended a few seconds after you leave it, and "crew, ..." on the glasses goes unheard.
@@ -77,7 +109,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   /// A soft rising two-note tone: the crew is listening for your next sentence. Played like the
   /// voice, so it comes out of the glasses, and on its own player so it never cuts a line off.
   func listeningChime() {
-    guard let p = try? AVAudioPlayer(data: Self.chimeWav) else { return }
+    guard !onPhone, let p = try? AVAudioPlayer(data: Self.chimeWav) else { return }
     p.volume = 0.6
     tone = p
     p.play()
@@ -86,7 +118,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
   /// One quick low blip the moment a request is caught: "got it, working on it", so you don't
   /// say it twice while the answer is on its way.
   func heardTone() {
-    guard let p = try? AVAudioPlayer(data: Self.blipWav) else { return }
+    guard !onPhone, let p = try? AVAudioPlayer(data: Self.blipWav) else { return }
     p.volume = 0.5
     tone = p
     p.play()
