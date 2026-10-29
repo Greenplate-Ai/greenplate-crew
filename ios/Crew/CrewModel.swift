@@ -197,6 +197,8 @@ final class CrewModel: ObservableObject {
     listenForRequest(seconds: awaitWindow)
   }
 
+  private var lastGreeting: Date?
+
   private func heard(_ text: String) {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = t.lowercased()
@@ -219,7 +221,20 @@ final class CrewModel: ObservableObject {
       else if lower.hasPrefix("no") || lower.hasPrefix("don't") || lower.hasPrefix("stop") { pendingApproval = nil; decide(false) }
       return
     }
-    if let request = Self.afterWakeWord(t) {
+    // The recognizer sometimes ends a sentence after "Hey": join it to the next one if it comes quickly.
+    let joinedText: String
+    if let greet = lastGreeting, Date().timeIntervalSince(greet) < 4 { joinedText = "hey " + t } else { joinedText = t }
+    lastGreeting = nil
+    let words = lower.split(separator: " ").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'-")) }
+    if words.count == 1, ["hey", "hi", "hello", "okay", "ok", "yo"].contains(words[0]) { lastGreeting = Date(); return }
+    guard let request = Self.afterWakeWord(joinedText) else {
+      // Heard something crew-like that didn't wake it: logged (word count only) so misses show up.
+      if words.contains(where: { Self.crewWords.contains($0) && $0 != "true" }) {
+        client?.event("wake_missed", detail: "\(words.count) words")
+      }
+      return
+    }
+    do {
       let r = request.lowercased()
       if Self.wantsKitchenMode(r) { Task { await startKitchen() }; return }
       if kitchenMode, Self.endsKitchenMode(r) { Task { await endKitchen() }; return }
@@ -237,18 +252,21 @@ final class CrewModel: ObservableObject {
         listenForRequest(seconds: 10)
         Task { await say("Yes?") }
       }
-      return
+      client?.event("woke")
     }
   }
 
   /// The request around the two-word wake phrase - a greeting then "crew" ("hey crew", "hi crew",
   /// "okay crew", and how the recognizer mishears them).
-  /// A bare "crew" in conversation ("the crew was great") doesn't wake it.
+  /// "Crew" alone wakes it only as the first word; mid-sentence ("the crew was great") it doesn't.
+  /// "crew" and how the glasses' recognizer mishears it.
+  static let crewWords: Set<String> = ["crew", "cru", "crue", "krew", "kru", "crews", "true", "cruz", "crewe", "grew", "crow"]
+
   static func afterWakeWord(_ text: String) -> String? {
     let words = text.split(separator: " ")
     let bare = words.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'-")) }
     let greet: Set<String> = ["hey", "hi", "hello", "okay", "ok", "yo", "hay", "hei", "high", "eh"]
-    let crew: Set<String> = ["crew", "cru", "crue", "krew", "kru", "crews", "true"]
+    let crew = Self.crewWords
     let joined: Set<String> = ["heycrew", "hicrew", "heycru", "hicru", "okcrew"]
     let rest = { (i: Int) in
       words.dropFirst(i).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
@@ -259,6 +277,8 @@ final class CrewModel: ObservableObject {
     let before = { (i: Int) in
       words.prefix(i).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
     }
+    // "Crew, ..." as the very first word still works on its own, like before "Hey Crew".
+    if let first = bare.first, crew.contains(first), first != "true", first != "grew" { return rest(1) }
     for i in 0..<bare.count {
       var after: Int?
       if joined.contains(bare[i]) { after = i + 1 }
