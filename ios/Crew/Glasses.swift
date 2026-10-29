@@ -336,7 +336,7 @@ final class Glasses: ObservableObject {
         try? await Task.sleep(for: .seconds(2))
         guard let self, let sp = self.speech, self.session != nil else { break }
         if sp.state == .stopped { sp.start() }
-        else if Date().timeIntervalSince(self.lastSpeechAt) > 120 { self.restartSpeech(why: "quiet 2 min") }
+        else if Date().timeIntervalSince(self.lastSpeechAt) > 300 { self.restartSpeech(why: "quiet 5 min") }
         if Date().timeIntervalSince(self.lastCheckIn) > 300 {
           self.lastCheckIn = Date()
           let place = UIApplication.shared.applicationState == .active ? "on screen" : "off screen"

@@ -509,8 +509,9 @@ struct DeveloperView: View {
         row("Times it woke", "\(crew.wakes)")
         row("Looked false", crew.wakes == 0 ? "0" : "\(crew.falseWakes) (\(crew.falseWakes * 100 / crew.wakes)%)")
         Button("Reset counts") { crew.resetWakeCounts() }
+        Toggle("Log what it hears", isOn: $crew.logHeard)
       } header: { Text("Hey Crew") } footer: {
-        Text("False = it woke and you said nothing after \"Yes?\", or said \"never mind\" / \"not you\". Every wake is also in the service log with what was heard.")
+        Text("False = it woke and you said nothing after \"Yes?\", or said \"never mind\" / \"not you\". Every wake is also in the service log with what was heard. Log what it hears: the first six words of each sentence go to your crew service's log, so misheard wake words can be fixed. Turn it off when tuning is done.")
       }
       Section {
         row("Address", crew.serviceAddress.isEmpty ? "not set" : crew.serviceAddress)

@@ -211,8 +211,9 @@ final class CrewModel: ObservableObject {
   /// A sentence ended. Wait a moment: if you keep talking, the next sentence joins it
   /// ("add milk... and eggs"). Then send the whole thing.
   private func askWhenDone(_ text: String) {
+    if sentence.isEmpty { speaker.heardTone() } // heard you: no need to say it again
     sentence = sentence.isEmpty ? text : "\(sentence) \(text)"
-    sendWhenQuiet(after: 0.8)
+    sendWhenQuiet(after: 0.5)
   }
 
   private func sendWhenQuiet(after seconds: Double) {
@@ -228,6 +229,10 @@ final class CrewModel: ObservableObject {
   }
 
   private var lastGreeting: Date?
+  /// Settings > Developer: send the first words of each sentence to the service log (for tuning "Hey Crew").
+  @Published var logHeard = UserDefaults.standard.object(forKey: "logHeard") as? Bool ?? true {
+    didSet { UserDefaults.standard.set(logHeard, forKey: "logHeard") }
+  }
   private var finalsHeard = 0
 
   // MARK: wake tracking (Settings > Developer, and wake_* lines in the service log)
@@ -289,6 +294,8 @@ final class CrewModel: ObservableObject {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     finalsHeard += 1
     if finalsHeard % 10 == 1 { client?.event("finals_heard", detail: "\(finalsHeard)") } // proof the recognizer is delivering
+    // While testing: the first words of each sentence, so a misheard "Hey Crew" can be added to the wake words.
+    if logHeard { client?.event("heard", detail: t.split(separator: " ").prefix(6).joined(separator: " ")) }
     let lower = t.lowercased()
     // The same request, continued after a pause.
     if !sentence.isEmpty, !t.isEmpty { askWhenDone(t); return }
@@ -325,8 +332,8 @@ final class CrewModel: ObservableObject {
     lastGreeting = nil
     let words = lower.split(separator: " ").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?'-")) }
     if words.count == 1, ["hey", "hi", "hello", "okay", "ok", "yo"].contains(words[0]) { lastGreeting = Date(); return }
-    // Short lines starting with a greeting are wake attempts: log what was heard so misses can be fixed.
-    if words.count <= 6, let w = words.first, ["hey", "hi", "hello", "okay", "ok", "yo", "hay", "a", "eh"].contains(w) {
+    // Lines starting with a greeting are wake attempts (any length: "hey [misheard], what's on my plan"): log the start so misses can be fixed.
+    if let w = words.first, ["hey", "hi", "hello", "okay", "ok", "yo", "hay", "eh"].contains(w) {
       client?.event("wake_heard", detail: String(lower.prefix(60)))
     }
     guard let request = Self.afterWakeWord(joinedText) else {

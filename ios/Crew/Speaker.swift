@@ -83,6 +83,21 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
     p.play()
   }
 
+  /// One quick low blip the moment a request is caught: "got it, working on it", so you don't
+  /// say it twice while the answer is on its way.
+  func heardTone() {
+    guard let p = try? AVAudioPlayer(data: Self.blipWav) else { return }
+    p.volume = 0.5
+    tone = p
+    p.play()
+  }
+
+  private static let blipWav: Data = {
+    let rate = 16_000.0, n = Int(rate * 0.07)
+    let pcm = (0..<n).map { i in Int16(sin(2 * .pi * 660 * Double(i) / rate) * min(1, Double(i) / 120) * (1 - Double(i) / Double(n)) * 8_000) }
+    return wav(pcm, rate: UInt32(rate))
+  }()
+
   private static let chimeWav: Data = {
     let rate = 16_000.0
     var pcm: [Int16] = []
