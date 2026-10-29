@@ -314,7 +314,7 @@ export const APP_REDIRECT = 'http://127.0.0.1:8765/callback'
 
 const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking']
 
-const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer in one or two short, friendly spoken sentences, no lists or markdown. Use the snapshot for what they have and what's planned; it's fine to say something isn't there. For general cooking know-how (times, temperatures, when it's done, techniques, swaps, what could be made from what they have) answer from your own knowledge like a friend in the kitchen; never refuse just because it isn't on the plan. Read 'it', 'that', 'them' from the conversation so far. Talk like a friend in the kitchen: happy to chat about food, ideas, what to make, and small talk, and ask a short question back when it helps. The grocery list comes from this week's meal plan minus the pantry; when the plan is empty, say the list is empty because nothing is planned yet and offer to help plan a few meals. If the request needs changing anything (adding, removing, updating, logging, planning), building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
+const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer in one or two short, friendly spoken sentences, no lists or markdown. Use the snapshot for what they have and what's planned; it's fine to say something isn't there. For general cooking know-how (times, temperatures, when it's done, techniques, swaps, what could be made from what they have) answer from your own knowledge like a friend in the kitchen; never refuse just because it isn't on the plan. Read 'it', 'that', 'them' from the conversation so far. Talk like a friend in the kitchen: happy to chat about food, ideas, what to make, and small talk, and ask a short question back when it helps. If a grocery list is in the snapshot, read it from there (items they added plus what the plan needs). If not, the list comes from this week's meal plan minus the pantry; when the plan is empty, say so and offer to help plan a few meals. If the request needs changing anything (adding, removing, updating, logging, planning), building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
 
 /** Pantry and this week's plan, fetched together and kept for a minute so follow-ups are instant. */
 export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {
@@ -323,8 +323,10 @@ export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {
     get(kitchen: Kitchen, day: string): Promise<string> {
       if (cached && cached.day === day && now() - cached.at < ttlMs) return cached.text
       const to = new Date(Date.parse(day) + 6 * 86_400_000).toISOString().slice(0, 10)
-      const text = Promise.all([kitchen.call('kitchen_pantry_list'), kitchen.call('kitchen_plan_list', { from: day, to })])
-        .then(([pantry, plan]) => `Today is ${day}.\nPantry: ${pantry.ok ? pantry.text : 'unavailable'}\nMeal plan ${day} to ${to}: ${plan.ok ? plan.text : 'unavailable'}`)
+      // The grocery list tool is newer than the others; without it the list is worked out from the plan.
+      const grocery = kitchen.call('kitchen_grocery_list').catch(() => ({ ok: false, text: '' }))
+      const text = Promise.all([kitchen.call('kitchen_pantry_list'), kitchen.call('kitchen_plan_list', { from: day, to }), grocery])
+        .then(([pantry, plan, list]) => `Today is ${day}.\nPantry: ${pantry.ok ? pantry.text : 'unavailable'}\nMeal plan ${day} to ${to}: ${plan.ok ? plan.text : 'unavailable'}${list.ok ? `\nGrocery list: ${list.text}` : ''}`)
       cached = { at: now(), day, text }
       text.catch(() => { cached = undefined })
       return text
