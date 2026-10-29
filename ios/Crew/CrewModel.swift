@@ -237,8 +237,8 @@ final class CrewModel: ObservableObject {
     }
   }
 
-  /// The request after the two-word wake phrase - a greeting then "crew" ("hey crew", "hi crew",
-  /// "okay crew", and how the recognizer mishears them) - near the start of the sentence.
+  /// The request around the two-word wake phrase - a greeting then "crew" ("hey crew", "hi crew",
+  /// "okay crew", and how the recognizer mishears them).
   /// A bare "crew" in conversation ("the crew was great") doesn't wake it.
   static func afterWakeWord(_ text: String) -> String? {
     let words = text.split(separator: " ")
@@ -249,9 +249,19 @@ final class CrewModel: ObservableObject {
     let rest = { (i: Int) in
       words.dropFirst(i).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
     }
-    for i in 0..<min(bare.count, 4) {
-      if joined.contains(bare[i]) { return rest(i + 1) }
-      if i + 1 < bare.count, greet.contains(bare[i]), crew.contains(bare[i + 1]) { return rest(i + 2) }
+    // Anywhere in the sentence: people say it first ("Hey Crew, what's...") or last ("what's in
+    // my week? Hey Crew"), and the recognizer often joins a repeat into one line. The request is
+    // what follows the phrase, or what came before it when nothing follows.
+    let before = { (i: Int) in
+      words.prefix(i).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " ,.!?"))
+    }
+    for i in 0..<bare.count {
+      var after: Int?
+      if joined.contains(bare[i]) { after = i + 1 }
+      else if i + 1 < bare.count, greet.contains(bare[i]), crew.contains(bare[i + 1]) { after = i + 2 }
+      guard let after else { continue }
+      let next = rest(after)
+      return next.isEmpty ? before(i) : next
     }
     return nil
   }
