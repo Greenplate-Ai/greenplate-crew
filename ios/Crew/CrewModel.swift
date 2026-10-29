@@ -54,6 +54,10 @@ final class CrewModel: ObservableObject {
   }
   private var trip: String?
   private var frameTask: Task<Void, Never>?
+  /// nil until checked; false shows "Connect your kitchen".
+  @Published private(set) var kitchenConnected: Bool?
+  @Published private(set) var connectingKitchen = false
+  private let signIn = KitchenSignIn()
   @Published private(set) var kitchenMode = false
   @Published private(set) var pulledOut: [String] = []
   private var kitchenSession: String?
@@ -404,6 +408,33 @@ final class CrewModel: ObservableObject {
   /// Phone-screen buttons answer approvals too.
   func approve(_ yes: Bool) {
     if let p = pendingApproval { pendingApproval = nil; p(yes) }
+  }
+
+  // MARK: connecting the kitchen (sign-in on the phone; the service keeps it)
+
+  func checkKitchen() async {
+    guard let client, let h = try? await client.health() else { return }
+    kitchenConnected = h.kitchen ?? h.crew ?? false
+  }
+
+  func connectKitchen() async {
+    guard let client, !connectingKitchen else { return }
+    connectingKitchen = true
+    defer { connectingKitchen = false }
+    do {
+      let start = try await client.startKitchenSignIn()
+      guard let url = URL(string: start.url) else { return }
+      let code = try await signIn.run(url: url, state: start.state)
+      let said = try await client.finishKitchenSignIn(code: code, state: start.state)
+      kitchenConnected = true
+      await addAndSay(said)
+      client.event("kitchen_connected")
+    } catch KitchenSignIn.Failure.cancelled {
+      return
+    } catch {
+      add("Crew", "Couldn't connect the kitchen: \(error.localizedDescription)")
+      client.event("kitchen_connect_failed", detail: error.localizedDescription)
+    }
   }
 
   // MARK: kitchen mode: food coming out, named once each

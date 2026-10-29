@@ -154,3 +154,28 @@ describe('performance report', async () => {
     expect(r).toContain('| app voice_failed | 1 |')
   })
 })
+
+describe('connecting the kitchen from the app', async () => {
+  const { crewServer } = await import('../src/kitchen/server.js')
+  const { fakeKitchen } = await import('../src/kitchen/service.js')
+  it('hands out a sign-in page, then swaps in the kitchen the code connects to', async () => {
+    const got: string[] = []
+    const kitchen = fakeKitchen({})
+    const connect = async (code: string, verifier: string, redirect: string) => { got.push(code, redirect, verifier ? 'v' : ''); return kitchen }
+    const server = crewServer({ appToken: 'test-token-0123456789abcdef', canWrite: false, connect, missing: ['GREENPLATE_REFRESH_TOKEN (rejected)'] })
+    await new Promise<void>((r) => server.listen(0, r))
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    const h = { authorization: 'Bearer test-token-0123456789abcdef' }
+    const start = await (await fetch(`${base}/kitchen/connect`, { headers: h })).json() as { url: string; state: string }
+    expect(start.url).toContain('resource=')
+    expect(start.url).toContain(encodeURIComponent('http://127.0.0.1:8765/callback'))
+    const bad = await fetch(`${base}/kitchen/connect`, { method: 'POST', headers: h, body: JSON.stringify({ code: 'c', state: 'nope' }) })
+    expect(bad.status).toBe(400)
+    const ok = await (await fetch(`${base}/kitchen/connect`, { method: 'POST', headers: h, body: JSON.stringify({ code: 'c1', state: start.state }) })).json()
+    expect(ok.say).toBe('Your kitchen is connected.')
+    expect(got).toEqual(['c1', 'http://127.0.0.1:8765/callback', 'v'])
+    const health = await (await fetch(`${base}/health`)).json()
+    expect(health).toMatchObject({ kitchen: true, missing: [] })
+    server.close()
+  })
+})

@@ -10,6 +10,8 @@
 //   POST /kitchen/:id/end                            -> {items, say}
 //   POST /meal/photo {jpegBase64, date, slot}   -> {mealId?, items, say}   (nothing saved yet)
 //   POST /meal/:id/log {yes}                    -> {logged, say}
+//   GET  /kitchen/connect                           -> {url, state, redirect} (sign-in page for the app to open)
+//   POST /kitchen/connect {code, state}             -> {ok, say}  (the app passes back the sign-in; the service keeps it)
 //   POST /events {kind, ms?, detail?}               -> {ok}   (the app's own timings, for npm run report)
 //   POST /speak          {text}                     -> audio/mpeg (404 when no voice is configured)
 // Auth: every request needs "Authorization: Bearer <CREW_APP_TOKEN>".
@@ -24,6 +26,7 @@ import { buildShoppingList } from './shopping.js'
 import { limiter, OverLimit } from './limits.js'
 import { spokenQuestion } from './speak.js'
 import { MAX_CHARS, type Speak } from './voice.js'
+import { authorizeUrl, pkce } from './greenplate-auth.js'
 import { barcodeLookup, summary, takeOut, type Session } from './takeout.js'
 import { noticeItem, remaining, spokenList, type PlateItem, type Seen, type ShoppingTrip } from './vision.js'
 
@@ -54,6 +57,8 @@ export interface ServerDeps {
   today?: () => string
   /** Spending caps; a fresh default limiter when not given. */
   limits?: ReturnType<typeof limiter>
+  /** Finishes a GreenplateAi sign-in started from the app and returns the connected kitchen. */
+  connect?: (code: string, verifier: string, redirect: string) => Promise<Kitchen>
   /** Barcode -> product name; Open Food Facts when not given. */
   lookup?: (code: string) => Promise<string | null>
 }
@@ -68,6 +73,7 @@ export function crewServer(d: ServerDeps) {
   const lim = d.limits ?? limiter()
   const snapshot = kitchenSnapshot()
   const sessions = new Map<string, Session>()
+  const signIns = new Map<string, { verifier: string; at: number }>()
   const lookup = d.lookup ?? barcodeLookup()
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -75,11 +81,38 @@ export function crewServer(d: ServerDeps) {
     const polling = req.method === 'GET' && (req.url ?? '').startsWith('/runs/')
     if (!polling && !lim.request()) return send(res, 429, { error: 'too many requests, slow down' })
     if (req.method === 'GET' && req.url === '/health') {
-      return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), missing: d.missing ?? [], usedToday: lim.today() })
+      return send(res, 200, { ok: true, voice: !!d.speak, talk: !!d.model, crew: !!(d.model && d.kitchen), kitchen: !!d.kitchen, missing: d.missing ?? [], usedToday: lim.today() })
     }
     if (req.headers.authorization !== `Bearer ${d.appToken}`) return send(res, 401, { error: 'unauthorized' })
     const url = new URL(req.url ?? '/', 'http://crew')
     const parts = url.pathname.split('/').filter(Boolean)
+
+    // Connecting the kitchen from the phone: the app opens the page, GreenplateAi sends the person back
+    // to the app's loopback address, and the app hands the code here. The service keeps the sign-in.
+    if (url.pathname === '/kitchen/connect' && d.connect) {
+      if (req.method === 'GET') {
+        for (const [k, v] of signIns) if (Date.now() - v.at > 600_000) signIns.delete(k)
+        const { verifier, challenge } = pkce()
+        const state = randomUUID()
+        signIns.set(state, { verifier, at: Date.now() })
+        return send(res, 200, { url: authorizeUrl({ redirect: APP_REDIRECT, challenge, state }), state, redirect: APP_REDIRECT })
+      }
+      if (req.method === 'POST') {
+        const body = await json(req)
+        const started = signIns.get(String(body.state ?? ''))
+        if (!started || !body.code) return send(res, 400, { error: 'that sign-in expired, start again' })
+        signIns.delete(String(body.state))
+        try {
+          d.kitchen = await d.connect(String(body.code), started.verifier, APP_REDIRECT)
+          d.missing = (d.missing ?? []).filter((m) => !m.startsWith('GREENPLATE_'))
+          snapshot.clear()
+          console.log('kitchen connected from the app')
+          return send(res, 200, { ok: true, say: 'Your kitchen is connected.' })
+        } catch (e) {
+          return send(res, 502, { error: (e as Error).message })
+        }
+      }
+    }
 
     // Talking (/ask, /runs) needs only the model; with no kitchen yet the crew just talks, no kitchen tools.
     const needsModel = (req.method === 'POST' && url.pathname === '/ask') || parts[0] === 'runs'
@@ -275,6 +308,9 @@ export function chatHistory(raw: unknown): Said[] {
     return [{ role: who === 'You' ? 'user' as const : 'assistant' as const, content: text }]
   })
 }
+
+/** Where GreenplateAi sends the person after they approve: a listener inside the app, for a moment. */
+export const APP_REDIRECT = 'http://127.0.0.1:8765/callback'
 
 const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking']
 

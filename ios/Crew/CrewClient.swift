@@ -68,6 +68,20 @@ struct CrewClient {
     return try await send("POST", "kitchen/\(session)/item", body)
   }
 
+  struct SignInStart: Decodable { let url: String; let state: String }
+  struct Health: Decodable { let kitchen: Bool?; let crew: Bool? }
+
+  /// Is the person's GreenplateAi kitchen connected on the service?
+  func health() async throws -> Health { try await send("GET", "health", nil) }
+
+  /// "Connect your kitchen": the sign-in page to open, then the code it sent back.
+  func startKitchenSignIn() async throws -> SignInStart { try await send("GET", "kitchen/connect", nil) }
+  func finishKitchenSignIn(code: String, state: String) async throws -> String {
+    struct R: Decodable { let say: String }
+    let r: R = try await send("POST", "kitchen/connect", ["code": code, "state": state])
+    return r.say
+  }
+
   /// The app's own timings and hiccups, logged by the service for npm run report. Never blocks.
   func event(_ kind: String, ms: Double? = nil, detail: String? = nil) {
     var body: [String: Any] = ["kind": kind]

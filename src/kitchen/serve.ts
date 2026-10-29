@@ -7,7 +7,7 @@ import { connectKitchen } from './service.js'
 import { museSparkEyes, museSparkPlate } from './vision.js'
 import { cachedVoice, elevenLabsVoice } from './voice.js'
 import { loadKeysFromVault, saveSecret } from './keyvault.js'
-import { greenplateSession } from './greenplate-auth.js'
+import { exchangeCode, greenplateSession } from './greenplate-auth.js'
 import { limitedVoice, limiter } from './limits.js'
 
 // On the server, keys come from Azure Key Vault (AZURE_KEYVAULT=<vault name>) into memory only.
@@ -31,13 +31,26 @@ const talker = process.env.MODEL_API_KEY ? museSpark({ effort: 'minimal' }) : un
 let kitchen: Awaited<ReturnType<typeof connectKitchen>> | undefined
 // A signed-in person's kitchen (npm run kitchen-login) wins over a fixed token.
 const vault = process.env.AZURE_KEYVAULT
+// Every renewed sign-in is saved straight away, so a restart picks up where it left off.
+const keep = async (next: string) => {
+  if (!vault) return
+  await saveSecret(vault, 'GREENPLATE_REFRESH_TOKEN', next)
+  console.log('saved the renewed GreenplateAi sign-in')
+}
+// A sign-in finished from the app ("Connect your kitchen"): keep it, then connect with it.
+const connect = async (code: string, verifier: string, redirect: string) => {
+  const t = await exchangeCode(code, verifier, redirect)
+  if (!t.refresh) throw new Error('GreenplateAi did not return a lasting sign-in (offline_access)')
+  await keep(t.refresh)
+  return connectKitchen({ token: greenplateSession(t.refresh, keep).token })
+}
 if (process.env.GREENPLATE_REFRESH_TOKEN) {
-  const session = greenplateSession(process.env.GREENPLATE_REFRESH_TOKEN, async (next) => { if (vault) await saveSecret(vault, 'GREENPLATE_REFRESH_TOKEN', next) })
+  const session = greenplateSession(process.env.GREENPLATE_REFRESH_TOKEN, keep)
   try { kitchen = await connectKitchen({ token: session.token }) } catch (e) { missing.push(`GREENPLATE_REFRESH_TOKEN (rejected: ${(e as Error).message})`) }
 } else if (process.env.GREENPLATE_MCP_TOKEN) {
   try { kitchen = await connectKitchen() } catch (e) { missing.push(`GREENPLATE_MCP_TOKEN (rejected: ${(e as Error).message})`) }
-} else missing.push('GREENPLATE_REFRESH_TOKEN (run npm run kitchen-login)')
+} else missing.push('GREENPLATE_REFRESH_TOKEN (connect the kitchen from the app)')
 const speak = process.env.ELEVENLABS_API_KEY ? cachedVoice(limitedVoice(elevenLabsVoice(), limits)) : (missing.push('ELEVENLABS_API_KEY'), undefined)
 
-crewServer({ model, talker, kitchen, eyes, plate, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
+crewServer({ model, talker, kitchen, connect, eyes, plate, speak, missing, canWrite: process.env.CREW_CAN_WRITE === '1', appToken, limits })
   .listen(port, () => console.log(`crew service on :${port}; missing: ${missing.join(', ') || 'nothing'}`))

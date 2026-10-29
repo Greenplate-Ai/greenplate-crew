@@ -174,6 +174,21 @@ struct CrewView: View {
           if showDetails, !glasses.heard.isEmpty {
             Text("Heard: \(glasses.heard)").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
           }
+          if crew.kitchenConnected == false {
+            Button { Task { await crew.connectKitchen() } } label: {
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text("Connect your kitchen").font(.subheadline.weight(.semibold))
+                  Text("Sign in to GreenplateAi once so the crew can see your pantry and plan.").font(.footnote).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+                if crew.connectingKitchen { ProgressView() } else { Image(systemName: "chevron.right") }
+              }
+              .padding(12).background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
+              .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.green, lineWidth: 1.5))
+            }
+            .buttonStyle(.plain)
+          }
           if crew.kitchenMode {
             HStack {
               Text(crew.pulledOut.isEmpty ? "Kitchen mode: show a barcode" : "Out: \(crew.pulledOut.joined(separator: ", "))")
