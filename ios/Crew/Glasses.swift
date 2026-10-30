@@ -116,7 +116,11 @@ final class Glasses: ObservableObject {
 
   /// Opens a session on the glasses and starts listening and watching the button.
   func connect() async {
-    guard session == nil else { return }
+    // One try at a time: the Connect button, coming back to the app and the retry loop used to start
+    // their own sessions at once, and the glasses end all but one ("The glasses ended the session").
+    guard session == nil, !connectInFlight else { return }
+    connectInFlight = true
+    defer { connectInFlight = false }
     userDisconnected = false
     link = .connecting
     do {
@@ -239,6 +243,7 @@ final class Glasses: ObservableObject {
   }
 
   private var reconnecting: Task<Void, Never>?
+  private var connectInFlight = false
   private var userDisconnected = false
 
   /// Tries a new session, less often each time, until the glasses are back (connect() itself waits up to 15 s
