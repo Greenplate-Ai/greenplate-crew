@@ -154,6 +154,8 @@ final class Glasses: ObservableObject {
     } catch {
       dropSession()
       link = .failed(Self.explain(error))
+      // Each failed try goes to the service log with what Meta AI reported, so drops can be traced.
+      onEvent?("connect_failed", "\(Self.explain(error)) | \(deviceReport.joined(separator: "; "))")
       reconnectWhenBack() // glasses off or out of range: keep trying quietly
     }
   }
@@ -231,16 +233,19 @@ final class Glasses: ObservableObject {
   private var reconnecting: Task<Void, Never>?
   private var userDisconnected = false
 
-  /// Tries a new session every 10 s until the glasses are back (connect() itself waits up to 15 s
+  /// Tries a new session, less often each time, until the glasses are back (connect() itself waits up to 15 s
   /// for them). Runs off-screen too, because the silent audio loop keeps the app alive.
   func reconnectWhenBack() {
     guard reconnecting == nil, registered, !userDisconnected else { return }
     reconnecting = Task { [weak self] in
+      var wait = 10.0
       while !Task.isCancelled {
         guard let self, self.session == nil, !self.userDisconnected else { break }
         await self.connect()
         if self.session != nil { self.onEvent?("reconnected", nil); break }
-        try? await Task.sleep(for: .seconds(10))
+        // Back off (10 s, 20 s, 40 s, then every minute), so a shaky link isn't hit with a new session every 10 s.
+        try? await Task.sleep(for: .seconds(wait))
+        wait = min(wait * 2, 60)
       }
       self?.reconnecting = nil
     }
