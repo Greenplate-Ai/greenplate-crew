@@ -20,6 +20,14 @@ final class Glasses: ObservableObject {
   @Published private(set) var registered = false
   /// What the Meta AI app reports for each pair: "RB Meta 01LT: connected, compatible".
   @Published private(set) var deviceReport: [String] = []
+  /// Glasses tab switch: connect by itself on opening the app and keep retrying after a drop.
+  /// Off = only the Connect button connects, and a drop stays dropped.
+  @Published var autoConnect = UserDefaults.standard.object(forKey: "autoConnect") as? Bool ?? true {
+    didSet {
+      UserDefaults.standard.set(autoConnect, forKey: "autoConnect")
+      if !autoConnect { reconnecting?.cancel(); reconnecting = nil }
+    }
+  }
 
   /// A finished sentence heard by the glasses' microphones.
   var onHeard: ((String) -> Void)?
@@ -77,7 +85,7 @@ final class Glasses: ObservableObject {
 
   /// Called when the app comes to the foreground: reconnect quietly if registered and not connected.
   func resume() async {
-    guard registered else { return }
+    guard registered, autoConnect else { return }
     switch link {
     case .connected, .connecting: return
     default: await connect()
@@ -236,11 +244,11 @@ final class Glasses: ObservableObject {
   /// Tries a new session, less often each time, until the glasses are back (connect() itself waits up to 15 s
   /// for them). Runs off-screen too, because the silent audio loop keeps the app alive.
   func reconnectWhenBack() {
-    guard reconnecting == nil, registered, !userDisconnected else { return }
+    guard autoConnect, reconnecting == nil, registered, !userDisconnected else { return }
     reconnecting = Task { [weak self] in
       var wait = 10.0
       while !Task.isCancelled {
-        guard let self, self.session == nil, !self.userDisconnected else { break }
+        guard let self, self.autoConnect, self.session == nil, !self.userDisconnected else { break }
         await self.connect()
         if self.session != nil { self.onEvent?("reconnected", nil); break }
         // Back off (10 s, 20 s, 40 s, then every minute), so a shaky link isn't hit with a new session every 10 s.

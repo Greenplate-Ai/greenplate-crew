@@ -413,11 +413,13 @@ struct GlassesView: View {
                 Text(glasses.registered ? "Connect glasses" : "Set up my glasses").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
               }
               .buttonStyle(.borderedProminent).tint(Theme.green)
-              Text(glasses.registered ? "Put your glasses on. Kitchen Crew connects by itself when you open it." : "Meta AI opens for a moment to approve Kitchen Crew, then you're back here and connected.")
+              Text(!glasses.registered ? "Meta AI opens for a moment to approve Kitchen Crew, then you're back here and connected." : glasses.autoConnect ? "Put your glasses on. Kitchen Crew connects by itself when you open it." : "Auto-connect is off: tap Connect when you want the crew.")
                 .font(.footnote).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
               Button("Register again with Meta AI") { Task { await glasses.register() } }
                 .font(.subheadline).foregroundStyle(Theme.greenDeep)
             }
+            Toggle("Auto-connect", isOn: $glasses.autoConnect)
+              .font(.subheadline).tint(Theme.green).padding(.top, 6)
           }
         }
         .padding(16)
