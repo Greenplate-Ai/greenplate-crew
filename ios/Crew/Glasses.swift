@@ -145,10 +145,24 @@ final class Glasses: ObservableObject {
         _ = try await Wearables.shared.requestPermission(.microphone)
       }
       // The camera is only needed on a shopping trip; asked for in startCamera().
-      // Meta's own selector picks the glasses (as in the first builds); the device list is kept only for display.
-      let device = try? pickConnectedDevice()
-      let s = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector(wearables: Wearables.shared))
+      // Named, not auto-chosen: an AutoDeviceSelector made at the moment of the tap is still empty
+      // and fails noEligibleDevice (Meta's BirdSpotter sample, DatGlassesSessionRepository).
+      let device: DeviceIdentifier? = try pickConnectedDevice()
+      let s = try Wearables.shared.createSession(deviceSelector: SpecificDeviceSelector(device: device!))
       session = s
+      // start() returns at once; what the glasses say about hosting the session comes on
+      // errorStream(). After a reset the glasses' developer app may need installing again.
+      let errors = Task { [weak self] in
+        for await error in s.errorStream() {
+          guard let self else { return }
+          self.onEvent?("session_error", "\(error)")
+          if error == .datAppOnTheGlassesUpdateRequired {
+            self.link = .failed("The glasses need their developer app updated. Meta AI is opening to do it.")
+            try? await Wearables.shared.openDATGlassesAppUpdate()
+          }
+        }
+      }
+      tasks.append(errors)
       try s.start()
       // Every state Meta's session goes through, with when, so a failed connect shows where it stopped.
       let t0 = Date()
