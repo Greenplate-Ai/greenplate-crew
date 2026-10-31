@@ -48,6 +48,9 @@ final class Glasses: ObservableObject {
   private var reviving: Task<Void, Never>?
   /// When the recognizer last gave us anything (partial, final, or a fresh start).
   private var lastSpeechAt = Date()
+  /// When the recognizer last started, and how many times it's been renewed (see reviveSpeech).
+  private var speechUpSince = Date()
+  private var renewals = 0
   /// A partial that never became a sentence: delivered after a pause, then its late final skipped.
   private var settling: Task<Void, Never>?
   private var fromPartial: String?
@@ -365,6 +368,7 @@ final class Glasses: ObservableObject {
           self.speechStarted = true
           self.listening = true
           self.lastSpeechAt = Date()
+          self.speechUpSince = Date()
         case .stopped:
           self.listening = false
           if self.speechStarted { self.reviveSpeech() }
@@ -380,26 +384,40 @@ final class Glasses: ObservableObject {
   /// Keeps the recognizer running for as long as the session is alive: every 2 s, if it has
   /// stopped (silence, the crew's voice, the glasses idling), start it again. It never gives up,
   /// because a recognizer left off is what made "crew" stop working after the first answer.
-  /// It can also stall while still saying "started" (Oct 29: one sentence, then nothing for
-  /// 10 minutes), so 2 minutes with no words at all gets a full stop and start.
+  /// It also goes deaf while still saying "started": on Oct 31, 22 restarts in a row it heard
+  /// for at most 65 s, ended on a partial that never finished, then nothing until the next
+  /// restart (service log, speech_restarted then heard). So it's renewed before a minute is up,
+  /// at a pause in speech when there is one, and a minute with no words at all also restarts it.
   /// Every 5 minutes it reports how listening is going, so a quiet stretch can be told apart
   /// from a deaf one in the service log.
   func reviveSpeech() {
     guard reviving == nil else { return }
     reviving = Task { [weak self] in
       while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(2))
+        try? await Task.sleep(for: .seconds(1))
         guard let self, let sp = self.speech, self.session != nil else { break }
+        let up = Date().timeIntervalSince(self.speechUpSince)
+        let quiet = Date().timeIntervalSince(self.lastSpeechAt)
         if sp.state == .stopped { sp.start() }
-        else if Date().timeIntervalSince(self.lastSpeechAt) > 300 { self.restartSpeech(why: "quiet 5 min") }
+        else if sp.state == .started, up > 60 || (up > 45 && quiet > 1.5) { self.renew(sp) }
+        else if quiet > 60 { self.restartSpeech(why: "quiet 1 min") }
         if Date().timeIntervalSince(self.lastCheckIn) > 300 {
           self.lastCheckIn = Date()
           let place = UIApplication.shared.applicationState == .active ? "on screen" : "off screen"
-          self.onEvent?("listen_check", "\(sp.state), last words \(Int(Date().timeIntervalSince(self.lastSpeechAt))) s ago, \(place)")
+          self.onEvent?("listen_check", "\(sp.state), last words \(Int(quiet)) s ago, renewed \(self.renewals)x, \(place)")
         }
       }
       self?.reviving = nil
     }
+  }
+
+  /// The under-a-minute renewal: a stop and start like restartSpeech, counted in listen_check
+  /// instead of logged each time (it happens every minute).
+  private func renew(_ sp: Speech) {
+    renewals += 1
+    speechUpSince = Date()
+    lastSpeechAt = Date()
+    sp.stop()
   }
 
   /// Stop, then start on the next tick of reviveSpeech (start is only honoured once stopped).
