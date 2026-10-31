@@ -135,9 +135,16 @@ final class Glasses: ObservableObject {
       let s = try Wearables.shared.createSession(deviceSelector: SpecificDeviceSelector(device: device))
       session = s
       try s.start()
+      // Every state Meta's session goes through, with when, so a failed connect shows where it stopped.
+      let t0 = Date()
+      var states: [String] = []
       for await state in s.stateStream() {
+        states.append("\(state) \(Int(Date().timeIntervalSince(t0) * 1000))ms")
         if state == .started { break }
-        if state == .stopped { throw GlassesError.stopped }
+        if state == .stopped {
+          onEvent?("session_states", "\(Wearables.shared.deviceForIdentifier(device)?.nameOrId() ?? "?"): \(states.joined(separator: " > "))")
+          throw GlassesError.stopped
+        }
       }
       attachSpeech(s)
       attachButton(s)
