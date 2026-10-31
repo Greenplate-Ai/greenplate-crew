@@ -14,7 +14,7 @@ struct CrewClient {
     let lane: String?
   }
   struct Trip: Decodable { let tripId: String; let needs: [String] }
-  struct Said: Decodable { let seen: String?; let say: String?; var unknownBarcode: Bool? = nil }
+  struct Said: Decodable { let seen: String?; let say: String?; var unknownBarcode: Bool? = nil; var checked: [String]? = nil }
 
   /// `history` is the chat so far (who, text), so the crew remembers the conversation.
   func ask(_ request: String, mode: String, history: [[String: String]] = []) async throws -> String {

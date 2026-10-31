@@ -3,7 +3,7 @@
 //   GET  /runs/:id                                  -> {status, answer?, question?, spoken?, steps}
 //   POST /runs/:id/answer {yes}                     -> {ok}
 //   POST /shopping/start {from, to}                 -> {tripId, needs}
-//   POST /shopping/:id/frame {barcode? | jpegBase64} -> {say?, unknownBarcode?}
+//   POST /shopping/:id/frame {barcode? | jpegBase64} -> {say?, unknownBarcode?, checked?} (checked: the list items picked up so far)
 //   POST /shopping/:id/checkout                     -> {say}
 //   POST /kitchen/start                              -> {sessionId}          (kitchen mode: food coming out)
 //   POST /kitchen/:id/item {barcode? | jpegBase64?}  -> {item?, say?}        (say is null when already counted)
@@ -292,14 +292,14 @@ export function crewServer(d: ServerDeps) {
         if (body.barcode) {
           const item = await lookup(String(body.barcode))
           if (!item) return send(res, 200, { seen: null, unknownBarcode: true })
-          return send(res, 200, { seen: item, say: noticeItem(trip, { item, confidence: 1 }) })
+          return send(res, 200, { seen: item, say: noticeItem(trip, { item, confidence: 1 }), checked: [...trip.checked] })
         }
         const jpeg = String(body.jpegBase64 ?? '')
         if (!jpeg) return send(res, 400, { error: 'jpegBase64 is required' })
         if (!d.eyes) return send(res, 503, { error: 'vision is not set up yet', missing: d.missing ?? [] })
         if (!lim.take('frame')) return send(res, 429, { error: 'the crew has hit its daily limit' })
         const seen = await d.eyes(jpeg) // the frame is not kept after this call
-        return send(res, 200, { seen: seen.item, say: noticeItem(trip, seen) })
+        return send(res, 200, { seen: seen.item, say: noticeItem(trip, seen), checked: [...trip.checked] })
       }
       if (parts[2] === 'checkout') return send(res, 200, { say: remaining(trip) })
     }

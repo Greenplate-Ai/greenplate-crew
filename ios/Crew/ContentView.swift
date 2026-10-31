@@ -147,11 +147,30 @@ struct Bubble: View {
           Text(caption).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 6)
         }
         if showDetails, let note = line.note {
-          Text(note).font(.caption).foregroundStyle(.red).padding(.horizontal, 6)
+          Text(note).font(.caption).foregroundStyle(Theme.warn).padding(.horizontal, 6)
         }
       }
       if !mine { Spacer(minLength: 48) }
     }
+  }
+}
+
+/// Three dots while the crew works on an answer, so a pause doesn't look like it didn't hear.
+struct Thinking: View {
+  @State private var on = false
+  var body: some View {
+    HStack(spacing: 5) {
+      ForEach(0..<3) { i in
+        Circle().fill(Theme.green).frame(width: 7, height: 7)
+          .opacity(on ? 1 : 0.3)
+          .animation(.easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: on)
+      }
+    }
+    .padding(.horizontal, 16).padding(.vertical, 14)
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+    .onAppear { on = true }
+    .accessibilityLabel("The crew is working on it")
   }
 }
 
@@ -203,23 +222,35 @@ struct CrewView: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
             if crew.lines.isEmpty {
-              VStack(alignment: .leading, spacing: 6) {
-                Text("Ask the crew").font(.headline)
-                Text("Try \"what am I missing this week?\" or \"move tonight's dinner to Thursday\".")
+              VStack(alignment: .leading, spacing: 12) {
+                Text("Ask the crew").font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
+                Text("Say \"Hey Crew\" on the glasses, or tap one to try it.")
                   .font(.subheadline).foregroundStyle(Theme.muted)
+                ForEach(Self.suggestions, id: \.self) { s in
+                  Button { Task { await crew.ask(s) } } label: {
+                    Text(s).font(.subheadline).foregroundStyle(Theme.bubbleInk)
+                      .padding(.horizontal, 14).padding(.vertical, 10)
+                      .background(Theme.tint50, in: Capsule())
+                      .overlay(Capsule().stroke(Theme.tint, lineWidth: 1))
+                  }
+                  .buttonStyle(.plain)
+                }
               }
               .padding(.top, 8)
             }
             ForEach(crew.lines) { Bubble(line: $0) }
+            if crew.busy, !crew.waitingForApproval { Thinking() }
             if crew.waitingForApproval {
               VStack(alignment: .leading, spacing: 12) {
-                Text("The crew wants to make a change").font(.subheadline.weight(.semibold))
-                Text("Nothing changes until you answer. You can also say yes or no.")
-                  .font(.footnote).foregroundStyle(Theme.muted)
+                Label("Nothing changes until you say yes", systemImage: "hand.raised")
+                  .font(.footnote.weight(.semibold)).foregroundStyle(Theme.greenDeep)
                 HStack(spacing: 10) {
-                  Button("Yes") { crew.approve(true) }.buttonStyle(.borderedProminent).tint(Theme.green)
-                  Button("No") { crew.approve(false) }.buttonStyle(.bordered)
+                  Button { crew.approve(true) } label: { Text("Yes").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4) }
+                    .buttonStyle(.borderedProminent).tint(Theme.green).clipShape(Capsule())
+                  Button { crew.approve(false) } label: { Text("No").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4) }
+                    .buttonStyle(.bordered).tint(Theme.ink).clipShape(Capsule())
                 }
+                Text("Or just say yes or no.").font(.footnote).foregroundStyle(Theme.muted)
               }
               .padding(16)
               .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
@@ -277,6 +308,8 @@ struct CrewView: View {
       .sheet(isPresented: $showChats) { ChatsList(close: { showChats = false }) }
     }
   }
+
+  static let suggestions = ["What's on my grocery list?", "What's about to go bad?", "Add milk and eggs to my list", "What's for dinner tonight?"]
 
   private func send() {
     let t = typed.trimmingCharacters(in: .whitespaces)
@@ -337,7 +370,33 @@ struct ShoppingView: View {
           if crew.shopping {
             Text("Hold items up or put them in the cart. Say \"Hey Crew, check out\" at the register to hear what's left.")
               .font(.subheadline).foregroundStyle(Theme.muted)
-            ForEach(crew.lines.reversed()) { Bubble(line: $0) }
+            if !crew.tripNeeds.isEmpty {
+              VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                  Text("Your list").font(.headline).foregroundStyle(Theme.ink)
+                  Spacer()
+                  Text("\(crew.tripChecked.count) of \(crew.tripNeeds.count)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.greenDeep)
+                }
+                .padding(.bottom, 10)
+                ProgressView(value: Double(crew.tripChecked.count), total: Double(max(crew.tripNeeds.count, 1))).tint(Theme.green).padding(.bottom, 8)
+                // Still to get first, then what's in the cart.
+                ForEach(crew.tripNeeds.sorted { !crew.tripChecked.contains($0) && crew.tripChecked.contains($1) }, id: \.self) { item in
+                  let got = crew.tripChecked.contains(item)
+                  HStack(spacing: 12) {
+                    Image(systemName: got ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(got ? Theme.green : Theme.line)
+                    Text(item.capitalized).font(.body).foregroundStyle(got ? Theme.muted : Theme.ink).strikethrough(got, color: Theme.muted)
+                    Spacer()
+                  }
+                  .padding(.vertical, 9)
+                  .animation(.easeOut(duration: 0.25), value: got)
+                }
+              }
+              .padding(16)
+              .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+              .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+            }
+            Text("What the crew said").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+            ForEach(crew.lines.reversed().prefix(6)) { Bubble(line: $0) }
             Button(role: .destructive) { Task { await crew.endShopping() } } label: {
               Text("End trip").frame(maxWidth: .infinity).padding(.vertical, 6)
             }
@@ -388,17 +447,30 @@ struct GlassesView: View {
               .background(Theme.warnBg, in: RoundedRectangle(cornerRadius: 14))
           }
 
-          VStack(alignment: .leading, spacing: 14) {
-            step(1, "Turn on Developer Mode in the Meta AI app", done: glasses.registered)
-            step(2, "Register Kitchen Crew with Meta AI", done: glasses.registered)
-            step(3, "Glasses on, connected, microphone allowed", done: glasses.link == .connected)
+          if !glasses.registered {
+            VStack(alignment: .leading, spacing: 14) {
+              step(1, "Turn on Developer Mode in the Meta AI app", done: glasses.registered)
+              step(2, "Register Kitchen Crew with Meta AI", done: glasses.registered)
+              step(3, "Glasses on, connected, microphone allowed", done: glasses.link == .connected)
+            }
+          } else if glasses.link == .connected {
+            VStack(alignment: .leading, spacing: 12) {
+              status("mic", glasses.listening ? "Listening for \"Hey Crew\"" : "Microphone restarting", on: glasses.listening)
+              status("camera", glasses.cameraOn ? "Camera on for this shopping trip" : "Camera off until a shopping trip", on: glasses.cameraOn)
+            }
+            .padding(16)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
           }
 
-          if !glasses.deviceReport.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("What Meta AI reports").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
-              ForEach(glasses.deviceReport, id: \.self) { Text($0).font(.footnote).foregroundStyle(Theme.ink) }
+          if !glasses.deviceReport.isEmpty, glasses.link != .connected {
+            DisclosureGroup("What Meta AI reports") {
+              VStack(alignment: .leading, spacing: 4) {
+                ForEach(glasses.deviceReport, id: \.self) { Text($0).font(.footnote).foregroundStyle(Theme.muted) }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
             }
+            .font(.footnote.weight(.semibold)).tint(Theme.muted)
           }
 
           VStack(spacing: 10) {
@@ -415,8 +487,10 @@ struct GlassesView: View {
               .buttonStyle(.borderedProminent).tint(Theme.green)
               Text(!glasses.registered ? "Meta AI opens for a moment to approve Kitchen Crew, then you're back here and connected." : glasses.autoConnect ? "Put your glasses on. Kitchen Crew connects by itself when you open it." : "Auto-connect is off: tap Connect when you want the crew.")
                 .font(.footnote).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
-              Button("Register again with Meta AI") { Task { await glasses.register() } }
-                .font(.subheadline).foregroundStyle(Theme.greenDeep)
+              if glasses.registered {
+                Button("Register again with Meta AI") { Task { await glasses.register() } }
+                  .font(.footnote).foregroundStyle(Theme.muted)
+              }
             }
             Toggle("Auto-connect", isOn: $glasses.autoConnect)
               .font(.subheadline).tint(Theme.green).padding(.top, 6)
@@ -426,6 +500,14 @@ struct GlassesView: View {
       }
       .background(Theme.canvas)
       .navigationTitle("Glasses")
+    }
+  }
+
+  private func status(_ icon: String, _ text: String, on: Bool) -> some View {
+    HStack(spacing: 12) {
+      Image(systemName: on ? "\(icon).fill" : icon).font(.body).foregroundStyle(on ? Theme.green : Theme.muted).frame(width: 24)
+      Text(text).font(.subheadline).foregroundStyle(Theme.ink)
+      Spacer()
     }
   }
 

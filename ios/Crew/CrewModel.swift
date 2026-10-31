@@ -53,6 +53,9 @@ final class CrewModel: ObservableObject {
     didSet { waitingForApproval = pendingApproval != nil }
   }
   private var trip: String?
+  /// This trip's list, and what's been picked up so far, for the Shopping tab's checklist.
+  @Published private(set) var tripNeeds: [String] = []
+  @Published private(set) var tripChecked: Set<String> = []
   private var frameTask: Task<Void, Never>?
   /// nil until checked; false shows "Connect your kitchen".
   @Published private(set) var kitchenConnected: Bool?
@@ -640,6 +643,8 @@ final class CrewModel: ObservableObject {
       let today = Self.day(0), week = Self.day(6)
       let t = try await client.startShopping(from: today, to: week)
       trip = t.tripId
+      tripNeeds = t.needs
+      tripChecked = []
       shopping = true
       await glasses.startCamera()
       let list = t.needs.isEmpty ? "Nothing on the list this week." : "\(t.needs.count) things on the list. First up: \(t.needs.prefix(3).joined(separator: ", "))."
@@ -665,6 +670,7 @@ final class CrewModel: ObservableObject {
       if said == nil || said?.unknownBarcode == true, let jpeg = glasses.takeFrame() {
         said = try? await client.frame(trip: trip, jpeg: jpeg)
       }
+      if let checked = said?.checked { tripChecked = Set(checked) }
       if let say = said?.say {
         add("Crew", say)
         await self.say(say)
@@ -682,6 +688,8 @@ final class CrewModel: ObservableObject {
       await self.say(say)
     }
     trip = nil
+    tripNeeds = []
+    tripChecked = []
   }
 
   /// The crew's last line and when it finished, to drop its own words if the microphones catch them.
