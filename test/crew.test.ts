@@ -132,3 +132,22 @@ describe('the crew', () => {
     expect(k.calls).toContain('feedback_add')
   })
 })
+
+describe('quick changes', () => {
+  it('keeps known changes with their required fields, and asks in one spoken question', async () => {
+    const { quickChanges, changeQuestion } = await import('../src/kitchen/crew.js')
+    const { spokenQuestion } = await import('../src/kitchen/speak.js')
+    const c = quickChanges([{ do: 'grocery_add', name: 'milk' }, { do: 'grocery_add', name: 'eggs', junk: 1 }, { do: 'launch_rockets' }, { do: 'grocery_remove' }])
+    expect(c).toEqual([{ do: 'grocery_add', name: 'milk' }, { do: 'grocery_add', name: 'eggs' }])
+    expect(spokenQuestion(changeQuestion(c))).toBe('The shopper wants to add milk and eggs to the grocery list. Yes or no?')
+  })
+
+  it('makes a change by name with the crew tool', async () => {
+    const { applyChange } = await import('../src/kitchen/crew.js')
+    const { fakeKitchen } = await import('../src/kitchen/service.js')
+    const state = { grocery: [{ name: 'bananas' }] as { name: string; ticked?: boolean }[] }
+    const r = await applyChange(fakeKitchen(state), { do: 'grocery_check_off', name: 'the bananas' })
+    expect(r.ok).toBe(true)
+    expect(state.grocery[0]!.ticked).toBe(true)
+  })
+})

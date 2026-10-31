@@ -15,6 +15,7 @@
     "kitchen-login": "tsx src/kitchen/login.ts",
     "kitchen-renew": "tsx src/kitchen/renew.ts",
     "sim": "tsx src/kitchen/sim.ts",
+    "eval": "tsx src/kitchen/eval.ts",
     "report": "tsx src/kitchen/report.ts"
   },
   "dependencies": {

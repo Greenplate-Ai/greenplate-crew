@@ -74,6 +74,12 @@ export function fakeKitchen(state: {
           const r = state.recipes?.[String(args.id)]
           return r ? ok({ recipe: { id: args.id, ...r } }) : no('No recipe of yours has that id.')
         }
+        case 'kitchen_pantry_update': {
+          const i = (state.pantry ?? []).findIndex((r, n) => (r.id ?? `p${n}`) === args.id)
+          if (i < 0) return no('No item of yours has that id.')
+          Object.assign(state.pantry![i]!, args.quantity !== undefined ? { quantity: Number(args.quantity) } : {}, args.unit ? { unit: String(args.unit) } : {})
+          return ok({ item: state.pantry![i] })
+        }
         case 'kitchen_pantry_add': {
           state.pantry = [...(state.pantry ?? []), { name: String(args.name), quantity: args.quantity as number | undefined, unit: args.unit as string | undefined }]
           return ok({ item: args })

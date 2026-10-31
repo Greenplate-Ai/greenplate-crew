@@ -78,6 +78,52 @@ const T = {
   } satisfies LocalTool<Ctx>,
 }
 
+/** Simple changes the quick lane makes itself: one model call names them, one question asks, then
+ *  these same tools run. Saves the crew's handoffs (10-20 s) for jobs that need them. */
+export const QUICK_CHANGES: Record<string, { tool: ServiceTool | LocalTool<Ctx>; agent: string }> = {
+  grocery_add: { tool: T.groceryAdd, agent: 'shopper' },
+  grocery_check_off: { tool: T.groceryCheckOff, agent: 'shopper' },
+  grocery_remove: { tool: T.groceryRemove, agent: 'shopper' },
+  pantry_add: { tool: T.pantryAdd, agent: 'pantry' },
+  pantry_update: { tool: T.pantryUpdate, agent: 'pantry' },
+  pantry_remove: { tool: T.pantryRemove, agent: 'pantry' },
+  feedback: { tool: T.feedback, agent: 'lead' },
+}
+
+export type QuickChange = { do: string } & Record<string, unknown>
+
+/** Keeps only known changes with the fields their tool takes. */
+export function quickChanges(lines: unknown[]): QuickChange[] {
+  return lines.flatMap((l) => {
+    const c = l as QuickChange | null
+    const known = c && typeof c.do === 'string' ? QUICK_CHANGES[c.do] : undefined
+    if (!c || !known) return []
+    const props = Object.keys((known.tool.def.parameters as { properties?: object }).properties ?? {})
+    const args = Object.fromEntries(Object.entries(c).filter(([k, v]) => props.includes(k) && v !== null && v !== ''))
+    const required = ((known.tool.def.parameters as { required?: string[] }).required ?? [])
+    return required.every((r) => r in args) ? [{ do: c.do, ...args }] : []
+  })
+}
+
+/** The approval question, in the fleet's format, so the app speaks it the same way. */
+export function changeQuestion(changes: QuickChange[]): string {
+  const agents = new Set(changes.map((c) => QUICK_CHANGES[c.do]!.agent))
+  const agent = agents.size === 1 ? [...agents][0]! : 'crew'
+  const line = ({ do: d, ...args }: QuickChange) => `${QUICK_CHANGES[d]!.tool.def.name}: ${JSON.stringify(args)}`
+  return `${agent} wants to ${changes.map(line).join('\n')}`
+}
+
+/** Runs one change with the crew's own tool; ok is false when it didn't happen. */
+export async function applyChange(kitchen: Kitchen, { do: d, ...args }: QuickChange): Promise<{ ok: boolean; text: string }> {
+  const tool = QUICK_CHANGES[d]!.tool
+  if (tool.via === 'service') {
+    const r = await kitchen.call(tool.def.name, args)
+    return { ok: r.ok, text: r.text }
+  }
+  const r = await tool.run(args, { service: kitchen, context: { kitchen } })
+  return { ok: r.text.startsWith('Done'), text: r.text }
+}
+
 const handoff = (to: string, when: string): HandoffTool =>
   ({ via: 'handoff', kind: 'read', to, def: { name: `ask_${to}`, description: `Hand the request to the ${to}: ${when}`, parameters: obj({ task: { type: 'string', description: 'What the specialist should do, in one sentence.' } }, ['task']) } })
 
@@ -104,6 +150,7 @@ export const KITCHEN_CREW: Fleet<Ctx> = {
     'Never give health, diet or medical advice, and never tell anyone what they should eat.',
     'Only use recipes and numbers a tool returned; never invent them.',
     'Never say something was saved, added, noted or sent unless a tool did it and said so.',
+    'Likes and preferences ("remember I like spicy food") cannot be saved yet: say so in a few words.',
     'Read the pantry and the plan once per run, not once per item.',
     'Make all the changes a request needs in one turn, so the person is asked once.',
     'Put the recipe title in a plan change (title), so the question can name it.',

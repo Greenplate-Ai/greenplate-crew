@@ -19,7 +19,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto'
 import type { Model } from '../fleet/model.js'
 import type { RunLog } from '../fleet/runlog.js'
-import { askCrew, type Mode } from './crew.js'
+import { applyChange, askCrew, changeQuestion, quickChanges, type Mode, type QuickChange } from './crew.js'
 import type { Kitchen } from './service.js'
 import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
@@ -143,9 +143,21 @@ export function crewServer(d: ServerDeps) {
       // Fast lane: most questions are answered in one quick model call over a snapshot of the
       // kitchen; only real jobs (changes, shopping lists, recipes) go to the full crew.
       let lane = d.kitchen ? 'crew' : 'talk'
+      // Simple changes picked by the quick call: asked once, then made with the crew's own tools.
+      const change = async (changes: QuickChange[]): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string }> => {
+        lane = 'quick change'
+        const yes = await new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = changeQuestion(changes); run.resolve = resolve })
+        if (!yes) return { answer: 'Okay, I left it as it was.' }
+        const results = []
+        for (const c of changes) results.push(await applyChange(kitchen, c))
+        snapshot.clear()
+        const missed = results.filter((r) => !r.ok)
+        return { answer: !missed.length ? 'Done.' : missed.length === results.length ? `That didn't go through: ${missed[0]!.text}` : `Mostly done, but one didn't go through: ${missed[0]!.text}` }
+      }
       const work = !d.kitchen ? talkOnly(d.talker ?? model, request, history)
         : d.talker && QUICK_MODES.includes(mode)
-          ? quickAnswer(d.talker, () => snapshot.get(kitchen, today()), request, history).then((r) => r ? (lane = 'quick', r) : crew())
+          ? quickAnswer(d.talker, () => snapshot.get(kitchen, today()), request, history).then((r) =>
+            !r ? crew() : r.changes ? (d.canWrite ? change(r.changes) : crew()) : (lane = 'quick', r))
           : crew()
       const started = Date.now()
       work.then((r) => {
@@ -319,9 +331,9 @@ export function chatHistory(raw: unknown): Said[] {
 /** Where GreenplateAi sends the person after they approve: a listener inside the app, for a moment. */
 export const APP_REDIRECT = 'http://127.0.0.1:8765/callback'
 
-const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking']
+const QUICK_MODES: Mode[] = ['general', 'pantry_check', 'cooking', 'shopping']
 
-const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer in one or two short, friendly spoken sentences, no lists or markdown. Use the snapshot for what they have and what's planned; it's fine to say something isn't there. For general cooking know-how (times, temperatures, when it's done, techniques, swaps, what could be made from what they have) answer from your own knowledge like a friend in the kitchen; never refuse just because it isn't on the plan. Read 'it', 'that', 'them' from the conversation so far. Talk like a friend in the kitchen: happy to chat about food, ideas, what to make, and small talk, and ask a short question back when it helps. If a grocery list is in the snapshot, read it from there (items they added plus what the plan needs). If not, the list comes from this week's meal plan minus the pantry; when the plan is empty, say so and offer to help plan a few meals. If the request needs changing anything (adding, removing, updating, logging, planning), sending feedback or a request to the GreenplateAi team, building a shopping list, or recipe steps, reply with exactly CREW and nothing else. Never say you saved, noted or sent anything. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
+const QUICK = "You are the GreenplateAi kitchen crew, speaking out loud through smart glasses in a running conversation. Below is a snapshot of the person's kitchen (pantry and this week's meal plan). Answer in one or two short, friendly spoken sentences, no lists or markdown. Use the snapshot for what they have and what's planned; it's fine to say something isn't there. For general cooking know-how (times, temperatures, when it's done, techniques, swaps, what could be made from what they have) answer from your own knowledge like a friend in the kitchen; never refuse just because it isn't on the plan. Read 'it', 'that', 'them' from the conversation so far. Talk like a friend in the kitchen: happy to chat about food, ideas, what to make, and small talk, and ask a short question back when it helps. If a grocery list is in the snapshot, read it from there (items they added plus what the plan needs). If not, the list comes from this week's meal plan minus the pantry; when the plan is empty, say so and offer to help plan a few meals. For simple changes to the grocery list or the pantry, or feedback for the GreenplateAi team, reply with DO on the first line and then one JSON object per line, one per item, using the names as the person said them: {\"do\":\"grocery_add\",\"name\":\"milk\"} · {\"do\":\"grocery_check_off\",\"name\":\"bananas\"} (they bought it) · {\"do\":\"grocery_remove\",\"name\":\"bread\"} · {\"do\":\"pantry_add\",\"name\":\"ground beef\",\"quantity\":2,\"unit\":\"lb\"} · {\"do\":\"pantry_update\",\"name\":\"rice\",\"quantity\":1} · {\"do\":\"pantry_remove\",\"name\":\"eggs\"} (used up, out of it, threw it out) · {\"do\":\"feedback\",\"kind\":\"request|blocker|bug|idea\",\"text\":\"in their words\"}. Any other change (the meal plan, the food log, favourites), building a shopping list, or recipe steps: reply with exactly CREW and nothing else. Likes and preferences can't be saved yet: say so in a few words. Never say you saved, noted or sent anything. Never tell anyone what to eat, judge food, or talk about health, weight or diet."
 
 /** Pantry and this week's plan, fetched together and kept for a minute so follow-ups are instant. */
 export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {
@@ -343,11 +355,15 @@ export function kitchenSnapshot(ttlMs = 60_000, now = () => Date.now()) {
 }
 
 /** One quick call over the kitchen snapshot; undefined means "this needs the full crew". */
-export async function quickAnswer(model: Model, kitchenText: () => Promise<string>, request: string, history: Said[] = []): Promise<{ answer: string; log?: RunLog; stoppedBecause?: string } | undefined> {
+export async function quickAnswer(model: Model, kitchenText: () => Promise<string>, request: string, history: Said[] = []): Promise<{ answer: string; changes?: QuickChange[]; log?: RunLog; stoppedBecause?: string } | undefined> {
   const chat = [{ role: 'system' as const, content: `${QUICK}\n\n${(await kitchenText()).slice(0, 12_000)}` }, ...history, { role: 'user' as const, content: request }]
   const first = await model.turn(chat, [])
   const text = first.text.trim()
   if (!text || text.toUpperCase().startsWith('CREW')) return undefined
+  if (/^DO\b/.test(text)) {
+    const changes = quickChanges(text.split('\n').slice(1).flatMap((l) => { try { return [JSON.parse(l.trim())] } catch { return [] } }))
+    return changes.length ? { answer: '', changes } : undefined // nothing usable: the crew works it out
+  }
   if (!soundsLikeCoaching(text)) return { answer: text }
   const again = await model.turn([...chat, { role: 'assistant', content: text }, { role: 'user', content: REWRITE }], [])
   return { answer: again.text.trim() }
