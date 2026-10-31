@@ -131,8 +131,9 @@ final class Glasses: ObservableObject {
         _ = try await Wearables.shared.requestPermission(.microphone)
       }
       // The camera is only needed on a shopping trip; asked for in startCamera().
-      let device = try pickConnectedDevice()
-      let s = try Wearables.shared.createSession(deviceSelector: SpecificDeviceSelector(device: device))
+      // Meta's own selector picks the glasses (as in the first builds); the device list is kept only for display.
+      let device = try? pickConnectedDevice()
+      let s = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector(wearables: Wearables.shared))
       session = s
       try s.start()
       // Every state Meta's session goes through, with when, so a failed connect shows where it stopped.
@@ -142,7 +143,7 @@ final class Glasses: ObservableObject {
         states.append("\(state) \(Int(Date().timeIntervalSince(t0) * 1000))ms")
         if state == .started { break }
         if state == .stopped {
-          onEvent?("session_states", "\(Wearables.shared.deviceForIdentifier(device)?.nameOrId() ?? "?"): \(states.joined(separator: " > "))")
+          onEvent?("session_states", "\(device.flatMap { Wearables.shared.deviceForIdentifier($0)?.nameOrId() } ?? "?"): \(states.joined(separator: " > "))")
           throw GlassesError.stopped
         }
       }
