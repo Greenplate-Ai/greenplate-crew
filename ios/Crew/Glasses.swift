@@ -72,7 +72,9 @@ final class Glasses: ObservableObject {
           // No extra tap: connect as soon as registration completes (or on launch if already registered).
           if !wasRegistered { Task { await self.connect() } }
         case .registering: self.link = .registering
-        default: if self.session == nil { self.link = .notRegistered }
+        default:
+          self.registered = false // e.g. after "Register again": the tab offers "Set up my glasses"
+          if self.session == nil { self.link = .notRegistered }
         }
       }
     })
@@ -98,8 +100,20 @@ final class Glasses: ObservableObject {
     } catch let e as RegistrationError {
       switch e {
       case .alreadyRegistered:
+        // "Register again" means it: remove Kitchen Crew in Meta AI. Meta AI opens to confirm; back
+        // here the tab shows "Set up my glasses", which registers it fresh.
         registered = true
         if session == nil { link = .registered }
+        if !reRegistering {
+          reRegistering = true
+          defer { reRegistering = false }
+          onEvent?("re_register", nil)
+          do {
+            try await Wearables.shared.startUnregistration()
+          } catch {
+            link = .failed("Meta AI didn't take the new registration: \(error.localizedDescription)")
+          }
+        }
       case .configurationInvalid: link = .failed("The app's Meta setup is invalid. This needs a new build, not a retry.")
       case .metaAINotInstalled: link = .failed("Install the Meta AI app, then tap Register.")
       case .networkUnavailable: link = .failed("No internet connection. Check Wi-Fi, then tap Register.")
@@ -252,6 +266,7 @@ final class Glasses: ObservableObject {
 
   private var reconnecting: Task<Void, Never>?
   private var connectInFlight = false
+  private var reRegistering = false
   private var userDisconnected = false
 
   /// Tries a new session, less often each time, until the glasses are back (connect() itself waits up to 15 s
