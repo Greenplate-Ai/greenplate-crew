@@ -1,5 +1,8 @@
 # Compile check for the glasses companion app. No signing: proves the Swift code and the
 # Meta Wearables package build. TestFlight uploads stay on the Codemagic workflow.
+# Where it runs: GitHub's Mac by default; the Mac mini (i2-mac-1-crew) once the repo variable
+# CREW_MAC is "on". The Mac mini's runner user has no admin and no Homebrew, so the steps below
+# don't use sudo or brew there.
 name: iOS build (compile check)
 
 on:
@@ -14,12 +17,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ${{ vars.CREW_MAC == 'on' && fromJSON('["self-hosted","macOS","mac-mini"]') || 'macos-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Pick the newest Xcode
+        if: ${{ vars.CREW_MAC != 'on' }}
         run: |
           ls -d /Applications/Xcode*.app
           X=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
@@ -27,7 +31,13 @@ jobs:
           xcodebuild -version
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          if command -v xcodegen >/dev/null; then exit 0; fi
+          if [ "${{ vars.CREW_MAC }}" != "on" ]; then brew install xcodegen; exit 0; fi
+          # Mac mini: the release build, for this run only.
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
 
       - name: Generate the Xcode project
         working-directory: ios
