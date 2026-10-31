@@ -131,6 +131,15 @@ final class CrewModel: ObservableObject {
     saveChats()
   }
 
+  /// Settings-free reset: every chat gone, one empty chat left open.
+  func clearChats() {
+    let c = Chat()
+    chats = [c]
+    currentChat = c.id
+    steps = []
+    saveChats()
+  }
+
   @discardableResult
   private func add(_ who: String, _ text: String, took: Double? = nil) -> UUID? {
     guard let i = chats.firstIndex(where: { $0.id == currentChat }) else { return nil }

@@ -325,6 +325,7 @@ struct CrewView: View {
 struct ChatsList: View {
   @EnvironmentObject var crew: CrewModel
   var close: () -> Void
+  @State private var confirmClear = false
 
   var body: some View {
     NavigationStack {
@@ -341,9 +342,16 @@ struct ChatsList: View {
             }
           }
           .listRowBackground(chat.id == crew.currentChat ? Theme.tint50 : Theme.surface)
+          .swipeActions { Button("Delete", role: .destructive) { crew.deleteChat(chat.id) } }
+          .contextMenu { Button("Delete chat", systemImage: "trash", role: .destructive) { crew.deleteChat(chat.id) } }
         }
-        .onDelete { idx in idx.map { crew.chats[$0].id }.forEach(crew.deleteChat) }
+        Section {
+          Button("Clear all chats", role: .destructive) { confirmClear = true }
+        } footer: { Text("Swipe left on a chat, or press and hold it, to delete just that one.") }
       }
+      .confirmationDialog("Delete every chat?", isPresented: $confirmClear, titleVisibility: .visible) {
+        Button("Delete all chats", role: .destructive) { crew.clearChats() }
+      } message: { Text("This can't be undone. Your kitchen in GreenplateAi isn't touched.") }
       .navigationTitle("Chats")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
