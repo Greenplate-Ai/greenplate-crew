@@ -295,6 +295,8 @@ struct CrewView: View {
       }
       .background(Theme.canvas)
       .navigationTitle("Kitchen Crew")
+      // Inline: the large title slid under the pinned glasses bar instead of sitting above it.
+      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button { showChats = true } label: { Image(systemName: "list.bullet") }
