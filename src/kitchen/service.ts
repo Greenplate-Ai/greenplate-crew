@@ -44,6 +44,8 @@ export function fakeKitchen(state: {
   grocery?: { id?: string; name: string; ticked?: boolean }[]
   plan?: { date: string; slot: string; recipeId: string; title: string; servings?: number }[]
   recipes?: Record<string, { title: string; servings: number; ingredients: { qty?: number; unit?: string; name: string }[] }>
+  log?: { date: string; slot: string; items: { name?: string }[] }[]
+  favourites?: string[]
   limitAfter?: number
 }): Kitchen & { calls: string[] } {
   const calls: string[] = []
@@ -69,7 +71,7 @@ export function fakeKitchen(state: {
           else list.splice(i, 1)
           return ok({ removed: tool !== 'kitchen_grocery_update' })
         }
-        case 'kitchen_plan_list': return ok({ items: (state.plan ?? []).filter((p) => p.date >= String(args.from) && p.date <= String(args.to)) })
+        case 'kitchen_plan_list': return ok({ items: (state.plan ?? []).map((p, n) => ({ id: `m${n}`, ...p })).filter((p) => p.date >= String(args.from) && p.date <= String(args.to)) })
         case 'my_recipe_get': {
           const r = state.recipes?.[String(args.id)]
           return r ? ok({ recipe: { id: args.id, ...r } }) : no('No recipe of yours has that id.')
@@ -83,6 +85,28 @@ export function fakeKitchen(state: {
         case 'kitchen_pantry_add': {
           state.pantry = [...(state.pantry ?? []), { name: String(args.name), quantity: args.quantity as number | undefined, unit: args.unit as string | undefined }]
           return ok({ item: args })
+        }
+        case 'kitchen_plan_add': {
+          const r = state.recipes?.[String(args.recipeId)]
+          state.plan = [...(state.plan ?? []), { date: String(args.date), slot: String(args.slot), recipeId: String(args.recipeId), title: String(args.title ?? r?.title ?? '') }]
+          return ok({ item: args })
+        }
+        case 'kitchen_plan_remove': {
+          const i = (state.plan ?? []).findIndex((p, n) => ((p as { id?: string }).id ?? `m${n}`) === args.id)
+          if (i < 0) return no('No planned meal of yours has that id.')
+          state.plan!.splice(i, 1)
+          return ok({ removed: true })
+        }
+        case 'kitchen_log_day': return ok({ meals: (state.log ?? []).filter((m) => m.date === args.date) })
+        case 'kitchen_log_add': {
+          state.log = [...(state.log ?? []), { date: String(args.date), slot: String(args.slot), items: (args.items as { name?: string }[] | undefined) ?? [] }]
+          return ok({ logged: args })
+        }
+        case 'my_recipes_list': return ok({ recipes: Object.entries(state.recipes ?? {}).map(([id, r]) => ({ id, title: r.title })) })
+        case 'my_collections_list': return ok({ collections: [{ id: 'favourites', name: 'Favourites', recipeIds: state.favourites ?? [] }] })
+        case 'my_collection_add': {
+          state.favourites = [...(state.favourites ?? []), String(args.recipeId)]
+          return ok({ added: args })
         }
         default: return no(`fakeKitchen: ${tool} not modelled`)
       }

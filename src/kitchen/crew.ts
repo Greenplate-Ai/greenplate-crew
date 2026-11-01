@@ -181,3 +181,23 @@ export function askCrew(request: string, mode: Mode, o: CrewOptions, runId?: str
   const task = `${`Today is ${o.today}. ${MODE_CONTEXT[mode]}`.trim()}\n\nThe person said: "${request}"`
   return runFleet(KITCHEN_CREW, task, { model: o.model, service: o.kitchen, context: { kitchen: o.kitchen }, canWrite: o.canWrite, budget: o.budget, confirm: o.confirm }, runId)
 }
+
+/** Every specialist's tools on one agent, each once. */
+const ALL_TOOLS = [...new Map(Object.values(agents).flatMap((a) => a.tools).filter((t) => t.via !== 'handoff').map((t) => [t.def.name, t])).values()]
+
+/** The voice lane: one agent with every tool and the kitchen snapshot already in hand, instead of
+ *  the lead handing off to specialists. A spoken request took 8-9 model calls in a row through the
+ *  relay (12-15 s, service log Oct 31 11:43); one agent needs 1-3. */
+export const SOLO_CREW: Fleet<Ctx> = {
+  lead: 'crew',
+  agents: {
+    crew: { name: 'crew', job: "You are the household's kitchen crew, speaking out loud on smart glasses: the grocery list, the pantry, the meal plan and recipe ideas, the food log, cooking the planned recipe, and feedback for the GreenplateAi team. The kitchen snapshot below is current; read from it instead of calling a list tool when it already has the answer. Answer in one or two short spoken sentences.", tools: ALL_TOOLS },
+  },
+  rules: KITCHEN_CREW.rules,
+  guard: KITCHEN_CREW.guard,
+}
+
+export function askSolo(request: string, mode: Mode, snapshot: string, o: CrewOptions, runId?: string): Promise<FleetResult> {
+  const task = `${`Today is ${o.today}. ${MODE_CONTEXT[mode]}`.trim()}\n\nKitchen snapshot:\n${snapshot.slice(0, 12_000)}\n\nThe person said: "${request}"`
+  return runFleet(SOLO_CREW, task, { model: o.model, service: o.kitchen, context: { kitchen: o.kitchen }, canWrite: o.canWrite, budget: o.budget, confirm: o.confirm }, runId)
+}

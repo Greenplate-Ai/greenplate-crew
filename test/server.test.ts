@@ -45,12 +45,12 @@ describe('crew service', () => {
   })
 
   it('waits for the person before changing the plan', async () => {
-    const model = scripted([call('ask_planner', { task: 'move dinner' }), call('kitchen_plan_add', { date: '2026-10-29', slot: 'dinner', recipeId: 'r1' }), say('Moved.'), say('Moved to Thursday.')])
+    const model = scripted([call('kitchen_plan_add', { date: '2026-10-29', slot: 'dinner', recipeId: 'r1' }), say('Moved to Thursday.')])
     const req = await start(model)
     const { body } = await req('POST', '/ask', { request: 'move dinner to Thursday' })
     const waiting = await until(() => req('GET', `/runs/${body.runId}`), (r) => r.body.status === 'waiting')
     expect(String(waiting.body.question)).toContain('kitchen_plan_add')
-    expect(waiting.body.spoken).toBe('The planner wants to put a recipe on the plan for 2026-10-29 dinner. Yes or no?')
+    expect(waiting.body.spoken).toBe('The crew wants to put a recipe on the plan for 2026-10-29 dinner. Yes or no?')
     expect((await req('POST', `/runs/${body.runId}/answer`, { yes: false })).status).toBe(200)
     const done = await until(() => req('GET', `/runs/${body.runId}`), (r) => r.body.status === 'done')
     expect(done.body.answer).toBe('Moved to Thursday.')

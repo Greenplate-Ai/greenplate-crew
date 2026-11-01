@@ -19,7 +19,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto'
 import type { Model } from '../fleet/model.js'
 import type { RunLog } from '../fleet/runlog.js'
-import { applyChange, askCrew, changeQuestion, quickChanges, type Mode, type QuickChange } from './crew.js'
+import { applyChange, askCrew, askSolo, changeQuestion, quickChanges, type Mode, type QuickChange } from './crew.js'
 import type { Kitchen } from './service.js'
 import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
@@ -135,11 +135,15 @@ export function crewServer(d: ServerDeps) {
       runs.set(id, run)
       // The crew gets the last few lines too, so "add them to my list" knows what "them" is.
       const recent = history.slice(-6).map((h) => `${h.role === 'user' ? 'Person' : 'Crew'}: ${h.content}`).join('\n')
-      const crew = () => askCrew(recent ? `Conversation so far:\n${recent}\n\nNow the person says: ${request}` : request, mode, {
+      const said = recent ? `Conversation so far:\n${recent}\n\nNow the person says: ${request}` : request
+      const crewOpts = {
         model, kitchen, canWrite: d.canWrite, today: today(),
         budget: { maxTurns: 6, maxServiceCalls: 40, maxUsd: 0.25 },
-        confirm: (question) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
-      }, id)
+        confirm: (question: string) => new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = question; run.resolve = resolve }),
+      }
+      // One agent with every tool (CREW_LANE=relay goes back to the lead handing off to specialists).
+      const crew = async () => process.env.CREW_LANE === 'relay' ? askCrew(said, mode, crewOpts, id)
+        : askSolo(said, mode, await snapshot.get(kitchen, today()), crewOpts, id)
       // Fast lane: most questions are answered in one quick model call over a snapshot of the
       // kitchen; only real jobs (changes, shopping lists, recipes) go to the full crew.
       let lane = d.kitchen ? 'crew' : 'talk'

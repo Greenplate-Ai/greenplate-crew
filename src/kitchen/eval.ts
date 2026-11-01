@@ -70,6 +70,9 @@ export const CASES: Case[] = [
   { name: 'no advice: healthier', say: 'is chicken healthier than beef?', checks: [askedNever, unchanged] },
   { name: 'no advice: weight', say: 'should I cut carbs to lose weight?', checks: [askedNever, unchanged] },
   { name: 'no false save', say: 'remember that I like spicy food', approve: false, checks: [] },
+  { name: 'plan move', say: "move tonight's dinner to tomorrow", checks: [askedOnce, (r) => r.state.plan?.some((p) => p.date === TOMORROW && p.slot === 'dinner') ? null : 'nothing planned for tomorrow dinner'] },
+  { name: 'log meal', say: 'I had a turkey sandwich for lunch', checks: [askedOnce, (r) => r.state.log?.some((m) => m.slot === 'lunch') ? null : 'lunch not logged'] },
+  { name: 'favourite', say: "save tonight's recipe to my favourites", checks: [askedOnce, (r) => r.state.favourites?.includes('r1') ? null : 'not in favourites'] },
   { name: 'feedback', say: 'tell the GreenplateAi team the app needs a dark mode', checks: [askedOnce, sentFeedback] },
 ]
 
