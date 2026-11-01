@@ -151,3 +151,17 @@ describe('quick changes', () => {
     expect(state.grocery[0]!.ticked).toBe(true)
   })
 })
+
+describe('loggedSay', () => {
+  it('says what this call logged, not the meal it joined', async () => {
+    const { loggedSay } = await import('../src/kitchen/crew.js')
+    const text = JSON.stringify({ meal: { items: [
+      { id: 'a', nutrition: { kcal: 500 }, estimated: false, nutritionBasis: 'recipe' },
+      { id: 'b', nutrition: { kcal: 412 }, estimated: true, nutritionBasis: 'reference' },
+      { id: 'c', nutrition: { kcal: 230 }, estimated: true, nutritionBasis: 'model' },
+    ] }, added: ['b', 'c'] })
+    expect(loggedSay(text)).toBe('Logged, about 640 calories, estimated.')
+    expect(loggedSay(JSON.stringify({ meal: { items: [{ id: 'x', nutrition: { kcal: 0 }, estimated: true, nutritionBasis: 'none' }] }, added: ['x'] }))).toMatch(/couldn't estimate/)
+    expect(loggedSay('not json')).toBeNull()
+  })
+})

@@ -125,6 +125,22 @@ export async function applyChange(kitchen: Kitchen, { do: d, ...args }: QuickCha
   return { ok: r.text.startsWith('Done'), text: r.text }
 }
 
+/** What a logged meal came to, said aloud so a bad estimate can be caught: kitchen_log_add returns
+ *  { meal: { items: [{ id, nutrition: { kcal } (already x servings), estimated, nutritionBasis }] }, added: [ids] }
+ *  (core log-store.ts LoggedMeal). Only this call's items count, not earlier ones it joined. */
+export function loggedSay(text: string): string | null {
+  type Entry = { id: string; nutrition?: { kcal?: number }; estimated?: boolean; nutritionBasis?: string }
+  let r: { meal?: { items?: Entry[] }; added?: string[]; item?: Entry }
+  try { r = JSON.parse(text) } catch { return null }
+  const items = r.meal?.items?.filter((i) => r.added?.includes(i.id)) ?? (r.item ? [r.item] : [])
+  if (!items.length) return null
+  if (items.some((i) => i.nutritionBasis === 'none')) return "Logged, but I couldn't estimate the calories for all of it. You can add them in the app."
+  const kcal = Math.round(items.reduce((n, i) => n + (i.nutrition?.kcal ?? 0), 0) / 10) * 10
+  const bases = new Set(items.map((i) => i.nutritionBasis))
+  const how = !items.some((i) => i.estimated) ? '' : bases.size === 1 && bases.has('model') ? ', a rough estimate' : ', estimated'
+  return `Logged, about ${kcal} calories${how}.`
+}
+
 const handoff = (to: string, when: string): HandoffTool =>
   ({ via: 'handoff', kind: 'read', to, def: { name: `ask_${to}`, description: `Hand the request to the ${to}: ${when}`, parameters: obj({ task: { type: 'string', description: 'What the specialist should do, in one sentence.' } }, ['task']) } })
 
@@ -153,7 +169,7 @@ export const KITCHEN_CREW: Fleet<Ctx> = {
     'Never say something was saved, added, noted or sent unless a tool did it and said so.',
     'Likes and preferences ("remember I like spicy food") cannot be saved yet: say so in a few words.',
     'Read the pantry and the plan once per run, not once per item.',
-    'When someone says they ate something, log it by name with the amount in the name: GreenplateAi estimates the nutrition. Only look up recipes when they name one of their own.',
+    'When someone says they ate something, log it by name with the amount in the name: GreenplateAi estimates the nutrition. Only look up recipes when they name one of their own. After logging, say the calories the log returned and whether they are estimated.',
     'Make all the changes a request needs in one turn, so the person is asked once.',
     'Put the recipe title in a plan change (title), so the question can name it.',
     'Speak briefly: the answer is read aloud on glasses.',

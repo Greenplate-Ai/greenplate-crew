@@ -99,8 +99,11 @@ export function fakeKitchen(state: {
         }
         case 'kitchen_log_day': return ok({ meals: (state.log ?? []).filter((m) => m.date === args.date) })
         case 'kitchen_log_add': {
-          state.log = [...(state.log ?? []), { date: String(args.date), slot: String(args.slot), items: (args.items as { name?: string }[] | undefined) ?? [] }]
-          return ok({ logged: args })
+          const items = (args.items as { name?: string }[] | undefined) ?? []
+          state.log = [...(state.log ?? []), { date: String(args.date), slot: String(args.slot), items }]
+          // GreenplateAi's shape (LoggedMeal): this call's entries, each with its kcal x servings and how it was estimated.
+          const entries = items.map((it, n) => ({ id: `l${state.log!.length}-${n}`, name: it.name, nutrition: { kcal: 320, proteinG: 20, carbsG: 30, fatG: 12 }, estimated: true, nutritionBasis: 'model' }))
+          return ok({ item: entries[0], meal: { items: entries }, added: entries.map((e) => e.id) })
         }
         case 'my_recipes_list': return ok({ recipes: Object.entries(state.recipes ?? {}).map(([id, r]) => ({ id, title: r.title })) })
         case 'my_collections_list': return ok({ collections: [{ id: 'favourites', name: 'Favourites', recipeIds: state.favourites ?? [] }] })

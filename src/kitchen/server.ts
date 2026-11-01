@@ -19,7 +19,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto'
 import type { Model } from '../fleet/model.js'
 import type { RunLog } from '../fleet/runlog.js'
-import { applyChange, askCrew, askSolo, changeQuestion, quickChanges, type Mode, type QuickChange } from './crew.js'
+import { applyChange, askCrew, askSolo, changeQuestion, loggedSay, quickChanges, type Mode, type QuickChange } from './crew.js'
 import type { Kitchen } from './service.js'
 import { REWRITE, soundsLikeCoaching } from './noadvice.js'
 import { buildShoppingList } from './shopping.js'
@@ -154,11 +154,13 @@ export function crewServer(d: ServerDeps) {
         changes = changes.map((c) => c.do === 'log_add' && !/^\d{4}-\d{2}-\d{2}$/.test(String(c.date)) ? { ...c, date: today() } : c)
         const yes = await new Promise<boolean>((resolve) => { run.status = 'waiting'; run.question = changeQuestion(changes); run.resolve = resolve })
         if (!yes) return { answer: 'Okay, I left it as it was.' }
-        const results = []
+        const results: { ok: boolean; text: string }[] = []
         for (const c of changes) results.push(await applyChange(kitchen, c))
         snapshot.clear()
         const missed = results.filter((r) => !r.ok)
-        return { answer: !missed.length ? 'Done.' : missed.length === results.length ? `That didn't go through: ${missed[0]!.text}` : `Mostly done, but one didn't go through: ${missed[0]!.text}` }
+        // A logged meal says what it came to, so a bad estimate is heard and can be fixed.
+        const logged = changes.flatMap((c, i) => c.do === 'log_add' && results[i]!.ok ? [loggedSay(results[i]!.text)] : []).filter(Boolean)
+        return { answer: !missed.length ? (logged.length === 1 ? logged[0]! : 'Done.') : missed.length === results.length ? `That didn't go through: ${missed[0]!.text}` : `Mostly done, but one didn't go through: ${missed[0]!.text}` }
       }
       const work = !d.kitchen ? talkOnly(d.talker ?? model, request, history)
         : d.talker && QUICK_MODES.includes(mode)
