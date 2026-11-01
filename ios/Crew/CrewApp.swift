@@ -17,7 +17,7 @@ struct CrewApp: App {
         }
         .onOpenURL { url in Task { await crew.glasses.handle(url: url) } }
         .onChange(of: phase) { _, now in
-          if now == .active { Task { await crew.glasses.resume(); await crew.checkKitchen() } }
+          if now == .active { crew.freshIfIdle(); Task { await crew.glasses.resume(); await crew.checkKitchen() } }
         }
     }
   }

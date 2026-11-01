@@ -17,7 +17,7 @@ final class CrewModel: ObservableObject {
     /// Crew lines: what happened to the voice when it didn't play ("voice didn't play: ...").
     var note: String? = nil
   }
-  /// One conversation. Kept on the phone (last 30 chats), newest first.
+  /// One conversation. Kept on the phone for 7 days (at most 30 chats), newest first.
   struct Chat: Identifiable, Codable {
     var id = UUID()
     var lines: [Line] = []
@@ -76,6 +76,7 @@ final class CrewModel: ObservableObject {
       UserDefaults.standard.set(build, forKey: "lastBuild")
       if let first = saved.first, !first.lines.isEmpty { saved.insert(Chat(), at: 0) }
     }
+    saved = CrewModel.recent(saved)
     let start = saved.isEmpty ? [Chat()] : saved
     chats = start
     currentChat = start[0].id
@@ -123,6 +124,19 @@ final class CrewModel: ObservableObject {
   }
 
   func openChat(_ id: UUID) { currentChat = id; steps = [] }
+
+  /// After 30 minutes away the next thing said starts a new chat, so an old conversation
+  /// doesn't steer a new question. Called when the app comes back and before each request.
+  func freshIfIdle() {
+    guard let chat = chats.first(where: { $0.id == currentChat }), !chat.lines.isEmpty,
+          Date().timeIntervalSince(chat.updated) > 30 * 60, !waitingForApproval else { return }
+    newChat()
+  }
+
+  /// Chats touched in the last 7 days; older ones are deleted from the phone.
+  private static func recent(_ chats: [Chat]) -> [Chat] {
+    chats.filter { Date().timeIntervalSince($0.updated) < 7 * 86_400 }
+  }
 
   func deleteChat(_ id: UUID) {
     chats.removeAll { $0.id == id }
@@ -174,7 +188,7 @@ final class CrewModel: ObservableObject {
   }
 
   private func saveChats() {
-    if let data = try? JSONEncoder().encode(Array(chats.prefix(30))) { UserDefaults.standard.set(data, forKey: "chats") }
+    if let data = try? JSONEncoder().encode(Array(CrewModel.recent(chats).prefix(30))) { UserDefaults.standard.set(data, forKey: "chats") }
   }
 
   // MARK: what the glasses hear
@@ -501,6 +515,7 @@ final class CrewModel: ObservableObject {
     guard !busy else { await say("Still on the last one."); return }
     busy = true
     defer { busy = false }
+    freshIfIdle()
     let history = lines.suffix(10).map { ["who": $0.who, "text": $0.text] }
     add("You", request)
     let asked = Date()
