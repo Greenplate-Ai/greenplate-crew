@@ -87,6 +87,7 @@ export const QUICK_CHANGES: Record<string, { tool: ServiceTool | LocalTool<Ctx>;
   pantry_add: { tool: T.pantryAdd, agent: 'pantry' },
   pantry_update: { tool: T.pantryUpdate, agent: 'pantry' },
   pantry_remove: { tool: T.pantryRemove, agent: 'pantry' },
+  log_add: { tool: T.logAdd, agent: 'logger' },
   feedback: { tool: T.feedback, agent: 'lead' },
 }
 
@@ -152,6 +153,7 @@ export const KITCHEN_CREW: Fleet<Ctx> = {
     'Never say something was saved, added, noted or sent unless a tool did it and said so.',
     'Likes and preferences ("remember I like spicy food") cannot be saved yet: say so in a few words.',
     'Read the pantry and the plan once per run, not once per item.',
+    'When someone says they ate something, log it by name with the amount in the name: GreenplateAi estimates the nutrition. Only look up recipes when they name one of their own.',
     'Make all the changes a request needs in one turn, so the person is asked once.',
     'Put the recipe title in a plan change (title), so the question can name it.',
     'Speak briefly: the answer is read aloud on glasses.',
